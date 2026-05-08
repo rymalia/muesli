@@ -934,8 +934,7 @@ struct OnboardingView: View {
 
     private func requestAccessibilityPermission() {
         nativePermissionPromptName = "Accessibility"
-        controller.bringOnboardingToFront()
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        controller.prepareOnboardingForNativePermissionPrompt()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary

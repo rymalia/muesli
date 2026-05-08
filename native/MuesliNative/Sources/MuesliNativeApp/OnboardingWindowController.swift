@@ -33,6 +33,13 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.orderBack(nil)
     }
 
+    func prepareForNativePermissionPrompt() {
+        guard let window else { return }
+        window.level = .normal
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     func close() {
         window?.close()
         window = nil

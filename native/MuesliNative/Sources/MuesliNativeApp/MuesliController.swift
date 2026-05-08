@@ -1129,6 +1129,11 @@ final class MuesliController: NSObject {
     }
 
     @MainActor
+    func prepareOnboardingForNativePermissionPrompt() {
+        onboardingWindowController?.prepareForNativePermissionPrompt()
+    }
+
+    @MainActor
     func notifyOnboardingModelReady() {
         guard onboardingWindowController != nil else { return }
         SoundController.playModelReady(enabled: config.soundEnabled)
