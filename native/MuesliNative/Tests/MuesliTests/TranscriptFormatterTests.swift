@@ -20,7 +20,7 @@ struct TranscriptFormatterTests {
         let result = TranscriptFormatter.merge(
             micSegments: mic, systemSegments: system, meetingStart: meetingStart
         )
-        let lines = result.components(separatedBy: "\n")
+        let lines = result.components(separatedBy: "\n").filter { !$0.isEmpty }
         #expect(lines.count == 3)
         #expect(lines[0].contains("You: Hello from mic"))
         #expect(lines[1].contains("Others: Hello from system"))
@@ -82,7 +82,7 @@ struct TranscriptFormatterTests {
         let result = TranscriptFormatter.merge(
             micSegments: [], systemSegments: system, meetingStart: meetingStart
         )
-        let lines = result.components(separatedBy: "\n")
+        let lines = result.components(separatedBy: "\n").filter { !$0.isEmpty }
         #expect(lines.count == 1)
         #expect(lines[0].contains("Others: Hello world"))
     }

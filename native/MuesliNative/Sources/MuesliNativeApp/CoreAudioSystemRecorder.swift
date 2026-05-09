@@ -89,10 +89,9 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
         onPCMSamples = nil
 
         removeDefaultOutputDeviceListener()
-        teardownTapAndAudioUnit()
-
-        // Drain any in-flight processing blocks before touching the file
-        processingQueue.sync {}
+        processingQueue.sync {
+            teardownTapAndAudioUnit()
+        }
 
         if let file = outputFile {
             let header = WAVHeader.create(dataSize: totalBytesWritten)
@@ -608,6 +607,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
 
         fputs("[system-audio] default output device changed; rebuilding tap\n", stderr)
         teardownTapAndAudioUnit()
+        guard isRecording else { return }
 
         do {
             try createTapAndAggregateDevice()
