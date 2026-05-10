@@ -38,9 +38,12 @@ enum PasteController {
     /// Flow: save clipboard → write text → Cmd+V → restore clipboard after delay.
     /// If the clipboard cannot be saved (e.g. lazy-provided data), falls back to a simple
     /// paste without restoration.
-    static func paste(text: String) {
+    static func paste(
+        text: String,
+        pasteboard: NSPasteboard = .general,
+        simulatePasteAction: @escaping () -> Void = PasteController.simulatePaste
+    ) {
         guard !text.isEmpty else { return }
-        let pasteboard = NSPasteboard.general
 
         // Save current clipboard contents (all types) so we can restore after paste.
         let savedItems = saveClipboard(pasteboard)
@@ -50,7 +53,7 @@ enum PasteController {
         let pasteChangeCount = pasteboard.changeCount
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            simulatePaste()
+            simulatePasteAction()
 
             // Restore the original clipboard contents after the receiving app has consumed the paste.
             DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {

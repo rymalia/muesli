@@ -2,7 +2,7 @@ import Testing
 import AppKit
 @testable import MuesliNativeApp
 
-// .serialized: all tests here touch NSPasteboard.general (shared mutable state)
+// .serialized: some tests still post keyboard events into the active session.
 @Suite("PasteController — clipboard-preserving paste and keystroke simulation", .serialized)
 struct PasteControllerTests {
 
@@ -66,58 +66,58 @@ struct PasteControllerTests {
 
     @Test("paste with empty string is a no-op")
     func pasteEmptyIsNoOp() {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = makePasteboard()
         pasteboard.clearContents()
         pasteboard.setString("original", forType: .string)
 
-        PasteController.paste(text: "")
+        PasteController.paste(text: "", pasteboard: pasteboard, simulatePasteAction: {})
 
         #expect(pasteboard.string(forType: .string) == "original")
     }
 
     @Test("paste temporarily writes text to clipboard for Cmd+V")
     func pasteWritesTextToClipboard() async {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = makePasteboard()
         pasteboard.clearContents()
         pasteboard.setString("original", forType: .string)
 
-        PasteController.paste(text: "dictated text")
+        PasteController.paste(text: "dictated text", pasteboard: pasteboard, simulatePasteAction: {})
 
         // Immediately after paste(), the clipboard holds the dictation text
         // (restoration happens asynchronously after ~500ms)
         #expect(pasteboard.string(forType: .string) == "dictated text")
 
-        _ = await waitForClipboardString(expected: "original")
+        _ = await waitForClipboardString(in: pasteboard, expected: "original")
     }
 
     @Test("paste restores clipboard after delay")
     func pasteRestoresClipboard() async throws {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = makePasteboard()
         pasteboard.clearContents()
         pasteboard.setString("user-copied-text", forType: .string)
 
-        PasteController.paste(text: "dictated text")
+        PasteController.paste(text: "dictated text", pasteboard: pasteboard, simulatePasteAction: {})
 
-        let restored = await waitForClipboardString(expected: "user-copied-text")
+        let restored = await waitForClipboardString(in: pasteboard, expected: "user-copied-text")
 
         #expect(restored == "user-copied-text")
     }
 
     @Test("paste restores empty clipboard state")
     func pasteRestoresEmptyClipboard() async throws {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = makePasteboard()
         pasteboard.clearContents()
 
-        PasteController.paste(text: "dictated text")
+        PasteController.paste(text: "dictated text", pasteboard: pasteboard, simulatePasteAction: {})
 
-        let restored = await waitForClipboardString(expected: nil)
+        let restored = await waitForClipboardString(in: pasteboard, expected: nil)
 
         #expect(restored == nil)
     }
 
     @Test("paste restores multi-item clipboard")
     func pasteRestoresMultiItemClipboard() async throws {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = makePasteboard()
         pasteboard.clearContents()
 
         // Write two distinct items to the clipboard (e.g., Finder multi-file copy)
@@ -130,9 +130,10 @@ struct PasteControllerTests {
         let countBefore = pasteboard.pasteboardItems?.count ?? 0
         #expect(countBefore == 2)
 
-        PasteController.paste(text: "dictated text")
+        PasteController.paste(text: "dictated text", pasteboard: pasteboard, simulatePasteAction: {})
 
         let (countAfter, texts) = await waitForClipboardItems(
+            in: pasteboard,
             expectedCount: 2,
             expectedStrings: ["item-one", "item-two"]
         )
@@ -143,11 +144,11 @@ struct PasteControllerTests {
 
     @Test("stale paste restore does not overwrite newer clipboard contents")
     func stalePasteRestoreDoesNotOverwriteNewerClipboardContents() async throws {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = makePasteboard()
         pasteboard.clearContents()
         pasteboard.setString("original", forType: .string)
 
-        PasteController.paste(text: "dictated text")
+        PasteController.paste(text: "dictated text", pasteboard: pasteboard, simulatePasteAction: {})
         try await Task.sleep(nanoseconds: 100_000_000)
 
         pasteboard.clearContents()
@@ -158,12 +159,17 @@ struct PasteControllerTests {
         #expect(pasteboard.string(forType: .string) == "user-copied-after-paste")
     }
 
-    private func waitForClipboardString(expected: String?) async -> String? {
+    private func makePasteboard() -> NSPasteboard {
+        let name = NSPasteboard.Name("com.muesli.tests.PasteController.\(UUID().uuidString)")
+        return NSPasteboard(name: name)
+    }
+
+    private func waitForClipboardString(in pasteboard: NSPasteboard, expected: String?) async -> String? {
         await withCheckedContinuation { continuation in
             let deadline = Date().addingTimeInterval(clipboardRestoreTimeout)
             var poll: (() -> Void)?
             poll = {
-                let current = NSPasteboard.general.string(forType: .string)
+                let current = pasteboard.string(forType: .string)
                 if current == expected || Date() >= deadline {
                     continuation.resume(returning: current)
                     return
@@ -180,12 +186,16 @@ struct PasteControllerTests {
         }
     }
 
-    private func waitForClipboardItems(expectedCount: Int, expectedStrings: [String]) async -> (Int, [String]) {
+    private func waitForClipboardItems(
+        in pasteboard: NSPasteboard,
+        expectedCount: Int,
+        expectedStrings: [String]
+    ) async -> (Int, [String]) {
         await withCheckedContinuation { continuation in
             let deadline = Date().addingTimeInterval(clipboardRestoreTimeout)
             var poll: (() -> Void)?
             poll = {
-                let items = NSPasteboard.general.pasteboardItems ?? []
+                let items = pasteboard.pasteboardItems ?? []
                 let count = items.count
                 let strings = items.compactMap { $0.string(forType: .string) }
                 if (count == expectedCount && strings == expectedStrings) || Date() >= deadline {
