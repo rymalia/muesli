@@ -235,40 +235,6 @@ Muesli needs these macOS permissions (guided during onboarding):
 
 ---
 
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│  Native Swift / SwiftUI App                          │
-│  ├── FluidAudio (Parakeet TDT + Qwen3 ASR on ANE)   │
-│  ├── Cohere Transcribe (FP16+INT8 CoreML on ANE)     │
-│  ├── WhisperKit (Whisper on CoreML/ANE)                │
-│  ├── Silero VAD (streaming voice activity detection)  │
-│  ├── Speaker Diarization (pyannote CoreML on ANE)     │
-│  ├── ChatGPTAuthManager (OAuth PKCE + WHAM API)       │
-│  ├── CameraActivityMonitor (CoreMediaIO listeners)    │
-│  ├── StreamingMicRecorder (AVAudioEngine real-time)    │
-│  ├── FillerWordFilter (uh/um removal)                 │
-│  ├── CustomWordMatcher (Jaro-Winkler fuzzy)           │
-│  ├── HotkeyMonitor (configurable modifier keys)       │
-│  ├── CoreAudioSystemRecorder (process tap)             │
-│  ├── SystemAudioRecorder (ScreenCaptureKit fallback)   │
-│  ├── MeetingSession (VAD-driven chunked transcription)│
-│  ├── MeetingSummaryClient (cloud providers + Ollama)  │
-│  ├── MeetingExporter (PDF + Markdown export)          │
-│  ├── GoogleCalendarAuthManager (OAuth + Calendar API)  │
-│  ├── MeetingNotificationController (Join & Record UI)  │
-│  ├── MeetingTemplates (built-in + custom templates)   │
-│  ├── FloatingIndicatorController (frosted glass pill)  │
-│  └── SwiftUI Dashboard (dictations, meetings,         │
-│       folders, dictionary, models, shortcuts, settings)│
-└──────────────────────────────────────────────────────┘
-```
-
-Everything runs in-process. No subprocesses, no IPC, no Python runtime.
-
----
-
 ## Tech Stack
 
 | Component | Technology |
