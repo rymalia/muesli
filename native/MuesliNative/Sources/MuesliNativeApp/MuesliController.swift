@@ -904,12 +904,16 @@ final class MuesliController: NSObject {
     }
 
     func signOutGoogleCalendar() {
+        invalidateGoogleCalendarAuth()
+        Task { await refreshUpcomingCalendarEvents() }
+    }
+
+    private func invalidateGoogleCalendarAuth() {
         googleCalAuth.signOut()
         googleCalClient.resetSync()
         appState.availableGoogleCalendars = []
         appState.googleCalendarListLoadState = .idle
         syncAppState()
-        Task { await refreshUpcomingCalendarEvents() }
     }
 
     /// Refresh the EventKit-available calendars list. Cheap (no network), safe
@@ -932,6 +936,12 @@ final class MuesliController: NSObject {
             let list = try await googleCalClient.fetchCalendarList()
             appState.availableGoogleCalendars = list
             appState.googleCalendarListLoadState = .loaded
+        } catch GoogleCalendarAuthError.notAuthenticated {
+            invalidateGoogleCalendarAuth()
+            fputs("[muesli-native] Google Calendar token invalid while loading calendar list, signed out\n", stderr)
+        } catch GoogleCalendarAuthError.refreshFailed {
+            invalidateGoogleCalendarAuth()
+            fputs("[muesli-native] Google Calendar refresh token invalid while loading calendar list, signed out\n", stderr)
         } catch {
             fputs("[muesli-native] Google calendarList fetch failed: \(error)\n", stderr)
             appState.googleCalendarListLoadState = .failed(error.localizedDescription)
@@ -950,14 +960,10 @@ final class MuesliController: NSObject {
                 )
                 ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleEvents)
             } catch GoogleCalendarAuthError.notAuthenticated {
-                googleCalAuth.signOut()
-                googleCalClient.resetSync()
-                syncAppState()
+                invalidateGoogleCalendarAuth()
                 fputs("[muesli-native] Google Calendar token invalid, signed out\n", stderr)
             } catch GoogleCalendarAuthError.refreshFailed {
-                googleCalAuth.signOut()
-                googleCalClient.resetSync()
-                syncAppState()
+                invalidateGoogleCalendarAuth()
                 fputs("[muesli-native] Google Calendar refresh token invalid, signed out\n", stderr)
             } catch {
                 fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)

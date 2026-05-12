@@ -296,7 +296,7 @@ final class GoogleCalendarClient {
         return f
     }()
 
-    func parseEvent(_ item: [String: Any], calendarID: String = "primary") -> UnifiedCalendarEvent? {
+    func parseEvent(_ item: [String: Any], calendarID: String) -> UnifiedCalendarEvent? {
         guard let id = item["id"] as? String,
               let summary = item["summary"] as? String else { return nil }
 

@@ -1493,6 +1493,13 @@ struct SettingsView: View {
                 }
             }
 
+            if appState.isGoogleCalendarAuthenticated && !appState.availableEventKitCalendars.isEmpty {
+                Text("Google calendars may appear once from macOS Calendar and once from Muesli's Google connection. Turn off both copies to hide that calendar completely.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if appState.isGoogleCalendarAuthenticated {
                 googleCalendarListLoadStateView
             }

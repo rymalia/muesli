@@ -57,7 +57,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T15:00:00+05:30"],
         ]
 
-        let event = GoogleCalendarClient().parseEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item, calendarID: "primary")
         #expect(event != nil)
         #expect(event?.id == "event123")
         #expect(event?.title == "Sprint Planning")
@@ -74,7 +74,7 @@ struct GoogleCalendarTests {
             "end": ["date": "2026-04-11"],
         ]
 
-        let event = GoogleCalendarClient().parseEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item, calendarID: "primary")
         #expect(event != nil)
         #expect(event?.isAllDay == true)
         #expect(event?.title == "Company Holiday")
@@ -88,7 +88,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T15:00:00Z"],
         ]
 
-        #expect(GoogleCalendarClient().parseEvent(item) == nil)
+        #expect(GoogleCalendarClient().parseEvent(item, calendarID: "primary") == nil)
     }
 
     @Test("returns nil for event missing id")
@@ -99,7 +99,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T15:00:00Z"],
         ]
 
-        #expect(GoogleCalendarClient().parseEvent(item) == nil)
+        #expect(GoogleCalendarClient().parseEvent(item, calendarID: "primary") == nil)
     }
 
     // MARK: - Meeting URL extraction
@@ -114,7 +114,7 @@ struct GoogleCalendarTests {
             "hangoutLink": "https://meet.google.com/abc-defg-hij",
         ]
 
-        let event = GoogleCalendarClient().parseEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item, calendarID: "primary")
         #expect(event?.meetingURL?.absoluteString == "https://meet.google.com/abc-defg-hij")
     }
 
@@ -132,7 +132,7 @@ struct GoogleCalendarTests {
             ],
         ]
 
-        let event = GoogleCalendarClient().parseEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item, calendarID: "primary")
         #expect(event?.meetingURL?.absoluteString == "https://us02web.zoom.us/j/123456789")
     }
 
@@ -145,7 +145,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T13:00:00Z"],
         ]
 
-        let event = GoogleCalendarClient().parseEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item, calendarID: "primary")
         #expect(event?.meetingURL == nil)
     }
 
