@@ -86,7 +86,15 @@ cd muesli
 
 # Build and install to /Applications
 ./scripts/build_native_app.sh
+
+# Contributor dev build without the maintainer Developer ID certificate
+MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh
 ```
+
+Release builds are signed by the maintainer Developer ID certificate. External
+contributors can use the unsigned dev build for local testing; it installs
+`MuesliDev.app` with a separate bundle ID and app data directory.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local development workflow.
 
 The transcription model (~450MB for Parakeet v3) downloads automatically on first use.
 
