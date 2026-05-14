@@ -182,6 +182,11 @@ final class MuesliController: NSObject {
     private var presentedMeetingCandidate: MeetingCandidate?
     private var meetingEndTimer: Timer?
     private var activeMeetingCalendarEndDate: Date?
+    private var latestMeetingActivityCandidate: MeetingCandidate?
+    private var latestMeetingActivityCandidateObservedAt: Date?
+    private var activeMeetingAutoStopSource: MeetingAutoStopSource?
+    private var activeMeetingAutoStopLastSeenAt: Date?
+    private let meetingAutoStopGracePeriod: TimeInterval = 20
     private var meetingActivity: NSObjectProtocol?
     private var isStoppingMeetingRecording = false
     private var meetingStartTask: Task<Void, Never>?
@@ -340,7 +345,9 @@ final class MuesliController: NSObject {
             self?.currentOrNearbyCachedCalendarEvent()
         }
         meetingMonitor.detectionEnabledProvider = { [weak self] in
-            self?.config.showMeetingDetectionNotification ?? false
+            guard let self else { return false }
+            return self.config.showMeetingDetectionNotification
+                || self.activeMeetingAutoStopSource != nil
         }
         meetingMonitor.mutedDetectionBundleIDsProvider = { [weak self] in
             Set(self?.config.mutedMeetingDetectionAppBundleIDs ?? [])
@@ -364,6 +371,9 @@ final class MuesliController: NSObject {
                 currentPromptID: self.meetingNotification.currentPromptID,
                 shownAt: self.meetingNotification.shownAt
             )
+        }
+        meetingMonitor.onActivityCandidateChanged = { [weak self] candidate in
+            self?.handleMeetingActivityCandidate(candidate)
         }
         meetingMonitor.onPromptCandidateChanged = { [weak self] candidate in
             guard let self else { return }
@@ -444,6 +454,7 @@ final class MuesliController: NSObject {
         meetingStartingNowTimers.values.forEach { $0.invalidate() }
         meetingStartingNowTimers.removeAll()
         meetingFeatureMonitorsAllowed = false
+        disarmMeetingAutoStop()
         meetingMonitor.stop()
         meetingDetectionMonitorStarted = false
         dismissPresentedMeetingDetection()
@@ -1227,6 +1238,7 @@ final class MuesliController: NSObject {
               !isMeetingRecording(),
               !isStartingMeetingRecording else { return }
         isShowingCalendarNotification = true
+        let autoStopSource = meetingURL.flatMap { MeetingAutoStopSource(meetingURL: $0) }
 
         meetingNotification.show(
             title: "Meeting starting now",
@@ -1236,7 +1248,12 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.startForegroundMeetingRecording(title: title, calendarEventID: calendarEventID, endDate: endDate)
+                self.startForegroundMeetingRecording(
+                    title: title,
+                    calendarEventID: calendarEventID,
+                    endDate: endDate,
+                    autoStopSource: autoStopSource
+                )
             },
             onJoinAndRecord: meetingURL != nil ? { [weak self] in
                 guard let self else { return }
@@ -2483,6 +2500,7 @@ final class MuesliController: NSObject {
 
         activeMeetingSession?.discard()
         activeMeetingSession = nil
+        disarmMeetingAutoStop()
         if let meetingStartMeetingID {
             canceledMeetingStartIDs.insert(meetingStartMeetingID)
             resolveLiveMeetingAfterStartFailure(id: meetingStartMeetingID)
@@ -2545,21 +2563,38 @@ final class MuesliController: NSObject {
     }
 
     @discardableResult
-    func startForegroundMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, endDate: Date? = nil) -> Bool {
+    func startForegroundMeetingRecording(
+        title: String = "Meeting",
+        calendarEventID: String? = nil,
+        endDate: Date? = nil,
+        autoStopSource: MeetingAutoStopSource? = nil
+    ) -> Bool {
         guard ensureBasicDictationPermissionsBeforeDashboard() else { return false }
         if isMeetingRecording() {
             presentHistoryWindow(tab: .meetings)
             return false
         }
         guard !isStartingMeetingRecording else { return false }
-        let didStart = startMeetingRecording(title: title, calendarEventID: calendarEventID, openDocument: true, endDate: endDate)
+        let didStart = startMeetingRecording(
+            title: title,
+            calendarEventID: calendarEventID,
+            openDocument: true,
+            endDate: endDate,
+            autoStopSource: autoStopSource
+        )
         guard didStart else { return false }
         presentHistoryWindow(tab: .meetings)
         return true
     }
 
     @discardableResult
-    func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false, endDate: Date? = nil) -> Bool {
+    func startMeetingRecording(
+        title: String = "Meeting",
+        calendarEventID: String? = nil,
+        openDocument: Bool = false,
+        endDate: Date? = nil,
+        autoStopSource: MeetingAutoStopSource? = nil
+    ) -> Bool {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return false }
         guard let meetingBackend = normalizeMeetingTranscriptionSelectionForAvailability() else {
             presentErrorAlert(
@@ -2590,6 +2625,7 @@ final class MuesliController: NSObject {
             presentErrorAlert(title: "Meeting failed to start", message: error.localizedDescription)
             return false
         }
+        armMeetingAutoStop(source: autoStopSource ?? recentMeetingAutoStopSource())
         isStartingMeetingRecording = true
         meetingStartMeetingID = meetingID
         updateMeetingStartStatus("Preparing meeting transcription...")
@@ -2611,6 +2647,7 @@ final class MuesliController: NSObject {
                 )
             } catch is CancellationError {
                 if self.meetingStartMeetingID == meetingID {
+                    self.disarmMeetingAutoStop()
                     self.resolveLiveMeetingAfterStartFailure(id: meetingID)
                     self.meetingMonitor.resumeAfterCooldown()
                     self.meetingMonitor.refreshState()
@@ -2622,6 +2659,7 @@ final class MuesliController: NSObject {
             } catch {
                 if self.meetingStartMeetingID == meetingID {
                     fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
+                    self.disarmMeetingAutoStop()
                     self.resolveLiveMeetingAfterStartFailure(id: meetingID)
                     self.meetingMonitor.resumeAfterCooldown()
                     self.meetingMonitor.refreshState()
@@ -2672,6 +2710,7 @@ final class MuesliController: NSObject {
         statusBarController?.refresh()
         setState(.idle)
         endMeetingActivity()
+        disarmMeetingAutoStop()
         meetingStartTask = nil
         meetingStartMeetingID = nil
         isStartingMeetingRecording = false
@@ -2790,7 +2829,12 @@ final class MuesliController: NSObject {
     /// Single entry point for "Join & Record" from both notification panel and Coming Up section.
     func joinAndRecord(title: String, meetingURL: URL, endDate: Date?, calendarEventID: String? = nil) {
         NSWorkspace.shared.open(meetingURL)
-        startForegroundMeetingRecording(title: title, calendarEventID: calendarEventID, endDate: endDate)
+        startForegroundMeetingRecording(
+            title: title,
+            calendarEventID: calendarEventID,
+            endDate: endDate,
+            autoStopSource: MeetingAutoStopSource(meetingURL: meetingURL)
+        )
     }
 
     /// Open meeting URL and suppress detection for the event duration.
@@ -2865,6 +2909,7 @@ final class MuesliController: NSObject {
         guard let sessionToDiscard = activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             guard !isStartingMeetingRecording else { return }
+            disarmMeetingAutoStop()
             indicator.setMeetingRecording(false, config: config)
             if let activeMeetingID {
                 resolveLiveMeetingAfterDiscard(id: activeMeetingID)
@@ -2876,6 +2921,7 @@ final class MuesliController: NSObject {
             return
         }
         sessionToDiscard.discard()
+        disarmMeetingAutoStop()
         self.activeMeetingSession = nil
         indicator.setMeetingRecording(false, config: config)
         if let activeMeetingID {
@@ -2983,6 +3029,7 @@ final class MuesliController: NSObject {
         guard let sessionToStop = activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             guard !isStartingMeetingRecording else { return }
+            disarmMeetingAutoStop()
             if let activeMeetingID {
                 resolveLiveMeetingAfterStopFailure(id: activeMeetingID)
                 self.activeMeetingID = nil
@@ -2994,6 +3041,7 @@ final class MuesliController: NSObject {
             return
         }
         isStoppingMeetingRecording = true
+        disarmMeetingAutoStop()
         meetingEndTimer?.invalidate()
         meetingEndTimer = nil
         meetingNotification.close()
@@ -3397,6 +3445,63 @@ final class MuesliController: NSObject {
         meetingMonitor.refreshState()
     }
 
+    private func armMeetingAutoStop(source: MeetingAutoStopSource?) {
+        activeMeetingAutoStopSource = source
+        activeMeetingAutoStopLastSeenAt = source == nil ? nil : Date()
+    }
+
+    private func recentMeetingAutoStopSource() -> MeetingAutoStopSource? {
+        guard let candidate = latestMeetingActivityCandidate,
+              let observedAt = latestMeetingActivityCandidateObservedAt,
+              Date().timeIntervalSince(observedAt) <= 15 else {
+            return nil
+        }
+        return MeetingAutoStopSource(candidate: candidate)
+    }
+
+    private func disarmMeetingAutoStop() {
+        activeMeetingAutoStopSource = nil
+        activeMeetingAutoStopLastSeenAt = nil
+        latestMeetingActivityCandidate = nil
+        latestMeetingActivityCandidateObservedAt = nil
+    }
+
+    private func handleMeetingActivityCandidate(_ candidate: MeetingCandidate?) {
+        if activeMeetingAutoStopSource == nil,
+           !isMeetingRecording(),
+           !isStartingMeetingRecording {
+            if let candidate {
+                latestMeetingActivityCandidate = candidate
+                latestMeetingActivityCandidateObservedAt = Date()
+            } else {
+                latestMeetingActivityCandidate = nil
+                latestMeetingActivityCandidateObservedAt = nil
+            }
+        }
+
+        guard let source = activeMeetingAutoStopSource,
+              activeMeetingSession?.isRecording == true,
+              !isStoppingMeetingRecording else {
+            return
+        }
+
+        let now = Date()
+        if let candidate,
+           MeetingAutoStopPolicy.matches(candidate: candidate, source: source) {
+            activeMeetingAutoStopSource = source.refined(with: candidate)
+            activeMeetingAutoStopLastSeenAt = now
+            return
+        }
+
+        guard let lastSeenAt = activeMeetingAutoStopLastSeenAt,
+              now.timeIntervalSince(lastSeenAt) >= meetingAutoStopGracePeriod else {
+            return
+        }
+
+        fputs("[meeting] auto-stopping recording after meeting source disappeared\n", stderr)
+        stopMeetingRecording()
+    }
+
     private func presentMeetingDetection(_ candidate: MeetingCandidate) {
         guard config.showMeetingDetectionNotification,
               !isShowingCalendarNotification,
@@ -3419,7 +3524,10 @@ final class MuesliController: NSObject {
             platform: MeetingPlatform(candidate.platform),
             onStartRecording: { [weak self] in
                 guard let self else { return }
-                if self.startForegroundMeetingRecording(title: title) {
+                if self.startForegroundMeetingRecording(
+                    title: title,
+                    autoStopSource: MeetingAutoStopSource(candidate: candidate)
+                ) {
                     self.meetingMonitor.markRecordingStarted(candidate)
                     self.presentedMeetingCandidate = nil
                 } else {
@@ -4312,9 +4420,16 @@ final class MuesliController: NSObject {
             .first(where: { $0.id == event.id })
         let calendarEndDate = calendarEvent?.endDate
         let meetingURL = event.meetingURL ?? calendarEvent?.meetingURL
+        let autoStopSource = meetingURL.flatMap { MeetingAutoStopSource(meetingURL: $0) }
 
         if config.autoRecordMeetings, !isMeetingRecording() {
-            startMeetingRecording(title: event.title, calendarEventID: event.id, openDocument: true, endDate: calendarEndDate)
+            startMeetingRecording(
+                title: event.title,
+                calendarEventID: event.id,
+                openDocument: true,
+                endDate: calendarEndDate,
+                autoStopSource: autoStopSource
+            )
             return
         }
 
@@ -4344,7 +4459,12 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.startForegroundMeetingRecording(title: title, calendarEventID: event.id, endDate: calendarEndDate)
+                self.startForegroundMeetingRecording(
+                    title: title,
+                    calendarEventID: event.id,
+                    endDate: calendarEndDate,
+                    autoStopSource: autoStopSource
+                )
             },
             onJoinAndRecord: meetingURL != nil ? { [weak self] in
                 guard let self else { return }
