@@ -600,6 +600,12 @@ struct HotkeyConfig: Codable, Equatable {
 
     static let `default` = HotkeyConfig()
     static let computerUseDefault = HotkeyConfig(keyCode: 54, label: "Right Cmd")
+    static let meetingRecordingDefault = HotkeyConfig(
+        keyCode: UInt16.max,
+        label: "⌘⇧R",
+        combinationModifiers: UInt(NSEvent.ModifierFlags([.command, .shift]).rawValue),
+        combinationKeyCode: 15
+    )
 
     static func computerUseDefault(avoiding dictationHotkey: HotkeyConfig) -> HotkeyConfig {
         dictationHotkey.keyCode == computerUseDefault.keyCode ? .default : .computerUseDefault
@@ -644,6 +650,8 @@ struct AppConfig: Codable {
     var dictationHotkey: HotkeyConfig = .default
     var computerUseHotkey: HotkeyConfig = .computerUseDefault
     var enableComputerUseHotkey: Bool = false
+    var meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault
+    var enableMeetingRecordingHotkey: Bool = false
     var computerUseHotkeyDefaultDisabledMigrationApplied: Bool = true
     var enableComputerUsePlanner: Bool = true
     var computerUsePlannerModel: String = ""
@@ -709,6 +717,8 @@ struct AppConfig: Codable {
         case dictationHotkey = "dictation_hotkey"
         case computerUseHotkey = "computer_use_hotkey"
         case enableComputerUseHotkey = "enable_computer_use_hotkey"
+        case meetingRecordingHotkey = "meeting_recording_hotkey"
+        case enableMeetingRecordingHotkey = "enable_meeting_recording_hotkey"
         case computerUseHotkeyDefaultDisabledMigrationApplied = "computer_use_hotkey_default_disabled_migration_applied"
         case enableComputerUsePlanner = "enable_computer_use_planner"
         case computerUsePlannerModel = "computer_use_planner_model"
@@ -782,6 +792,8 @@ struct AppConfig: Codable {
             ? ((try? c.decode(Bool.self, forKey: .enableComputerUseHotkey)) ?? defaults.enableComputerUseHotkey)
             : false
         computerUseHotkeyDefaultDisabledMigrationApplied = true
+        meetingRecordingHotkey = (try? c.decode(HotkeyConfig.self, forKey: .meetingRecordingHotkey)) ?? defaults.meetingRecordingHotkey
+        enableMeetingRecordingHotkey = (try? c.decode(Bool.self, forKey: .enableMeetingRecordingHotkey)) ?? defaults.enableMeetingRecordingHotkey
         enableComputerUsePlanner = (try? c.decode(Bool.self, forKey: .enableComputerUsePlanner)) ?? defaults.enableComputerUsePlanner
         computerUsePlannerModel = (try? c.decode(String.self, forKey: .computerUsePlannerModel)) ?? defaults.computerUsePlannerModel
         computerUseTimeoutSeconds = (try? c.decode(Int.self, forKey: .computerUseTimeoutSeconds)) ?? defaults.computerUseTimeoutSeconds
