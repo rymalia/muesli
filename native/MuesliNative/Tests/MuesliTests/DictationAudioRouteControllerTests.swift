@@ -4,9 +4,26 @@ import Testing
 
 @Suite("DictationAudioRouteController")
 struct DictationAudioRouteControllerTests {
-    @Test("dictation prefers built-in mic for every output route")
-    func dictationPrefersBuiltInMicForEveryOutputRoute() {
-        for routeKind in [AudioOutputRouteKind.speakerLike, .headphoneLike, .unknown] {
+    @Test("dictation prefers built-in mic for headphone output")
+    func dictationPrefersBuiltInMicForHeadphoneOutput() {
+        let inspector = FakeCoreAudioDeviceInspector(
+            defaultOutputDeviceID: 10,
+            outputRouteKind: .headphoneLike,
+            builtInInputDeviceID: 82
+        )
+        let controller = DictationAudioRouteController(
+            inspector: inspector,
+            queue: DispatchQueue(label: "test.dictation-audio-route.headphone-like"),
+            observesDefaultOutputChanges: false
+        )
+
+        #expect(controller.preferredInputDeviceIDForDictation() == 82)
+        #expect(controller.cachedPreferredInputDeviceIDForDictation() == 82)
+    }
+
+    @Test("dictation preserves default input for speaker and unknown output")
+    func dictationPreservesDefaultInputForSpeakerAndUnknownOutput() {
+        for routeKind in [AudioOutputRouteKind.speakerLike, .unknown] {
             let inspector = FakeCoreAudioDeviceInspector(
                 defaultOutputDeviceID: 10,
                 outputRouteKind: routeKind,
@@ -18,8 +35,8 @@ struct DictationAudioRouteControllerTests {
                 observesDefaultOutputChanges: false
             )
 
-            #expect(controller.preferredInputDeviceIDForDictation() == 82)
-            #expect(controller.cachedPreferredInputDeviceIDForDictation() == 82)
+            #expect(controller.preferredInputDeviceIDForDictation() == nil)
+            #expect(controller.cachedPreferredInputDeviceIDForDictation() == nil)
         }
     }
 

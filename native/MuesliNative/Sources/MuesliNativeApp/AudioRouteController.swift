@@ -212,7 +212,8 @@ final class DictationAudioRouteController: DictationAudioRouting {
     }
 
     private static func preferredInputDeviceID(for snapshot: RouteSnapshot) -> AudioObjectID? {
-        snapshot.builtInInputDeviceID
+        guard snapshot.outputRouteKind == .headphoneLike else { return nil }
+        return snapshot.builtInInputDeviceID
     }
 
     private func makeRouteSnapshot() -> RouteSnapshot {
