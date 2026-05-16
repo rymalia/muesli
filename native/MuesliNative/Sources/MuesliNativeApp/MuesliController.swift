@@ -4301,11 +4301,34 @@ final class MuesliController: NSObject {
             }
 
             await MainActor.run {
+                guard self.isNemotronStreaming else {
+                    fputs("[muesli-native] Nemotron session cancelled before transcriber ready\n", stderr)
+                    return
+                }
                 self._streamingDictationController = controller
-                controller.start()
+                guard controller.start() else {
+                    self.handleNemotronStreamingStartFailure()
+                    return
+                }
                 fputs("[muesli-native] Nemotron streaming controller started\n", stderr)
             }
         }
+    }
+
+    @MainActor
+    private func handleNemotronStreamingStartFailure() {
+        fputs("[muesli-native] Nemotron streaming controller failed to start\n", stderr)
+        isNemotronStreaming = false
+        _streamingDictationController = nil
+        previousStreamText = ""
+        dictationStartedAt = nil
+        dictationAudioSessionManager.endExternalSession(reason: "nemotron-start-failed")
+        indicator.setToggleDictation(false, config: config)
+        resetDictationOutputMode()
+        setState(.idle)
+        meetingMonitor.resumeAfterCooldown()
+        finishDictationLatencyTrace("nemotron_start_failed")
+        syncDictationRecorderWarmup(reason: "nemotron-start-failed")
     }
 
     private func handleCancel() {

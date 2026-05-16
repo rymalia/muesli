@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CoreAudio
 @testable import MuesliNativeApp
 
 @Suite("NemotronStreamState")
@@ -72,6 +73,47 @@ struct StreamingDictationControllerTests {
         let controller = StreamingDictationController(transcriber: transcriber)
         let result = controller.stop()
         #expect(result.isEmpty)
+    }
+
+    @available(macOS 15, *)
+    @Test("failed mic start resets active state")
+    func failedMicStartResetsActiveState() {
+        let transcriber = NemotronStreamingTranscriber()
+        let recorder = FailingStreamingDictationRecorder()
+        let controller = StreamingDictationController(
+            transcriber: transcriber,
+            recorder: recorder
+        )
+
+        #expect(controller.start() == false)
+        #expect(controller.start() == false)
+        #expect(recorder.prepareCalls == 2)
+        #expect(recorder.cancelCalls == 2)
+    }
+}
+
+private final class FailingStreamingDictationRecorder: StreamingDictationRecording {
+    var onAudioBuffer: (([Float]) -> Void)?
+    var preferredInputDeviceID: AudioObjectID?
+    var prepareCalls = 0
+    var startCalls = 0
+    var cancelCalls = 0
+
+    func prepare() throws {
+        prepareCalls += 1
+        throw NSError(domain: "FailingStreamingDictationRecorder", code: 1)
+    }
+
+    func start() throws {
+        startCalls += 1
+    }
+
+    func stop() -> URL? {
+        nil
+    }
+
+    func cancel() {
+        cancelCalls += 1
     }
 }
 

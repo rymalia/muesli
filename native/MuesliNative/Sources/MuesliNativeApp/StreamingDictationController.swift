@@ -17,7 +17,7 @@ final class StreamingDictationController {
     var onPartialText: ((String) -> Void)?
 
     private let transcriber: NemotronStreamingTranscriber
-    private let recorder = StreamingMicRecorder()
+    private let recorder: StreamingDictationRecording
     private var streamState: NemotronStreamingTranscriber.StreamState?
     private var sampleBuffer: [Float] = []
     private let bufferLock = OSAllocatedUnfairLock()
@@ -29,8 +29,13 @@ final class StreamingDictationController {
     private var isActive = false
     private let chunkSamples = 8960  // 560ms at 16kHz
 
-    init(transcriber: NemotronStreamingTranscriber, preferredInputDeviceID: AudioObjectID? = nil) {
+    init(
+        transcriber: NemotronStreamingTranscriber,
+        preferredInputDeviceID: AudioObjectID? = nil,
+        recorder: StreamingDictationRecording = StreamingMicRecorder()
+    ) {
         self.transcriber = transcriber
+        self.recorder = recorder
         recorder.preferredInputDeviceID = preferredInputDeviceID
     }
 
@@ -49,12 +54,17 @@ final class StreamingDictationController {
         }
     }
 
-    func start() {
-        guard !isActive else { return }
+    @discardableResult
+    func start() -> Bool {
+        guard !isActive else { return true }
         isActive = true
         fullTranscript = ""
         sampleBuffer.removeAll()
         chunkQueue.removeAll()
+        streamState = nil
+        drainLock.withLock {
+            isDraining = false
+        }
 
         // Start mic IMMEDIATELY — don't block on state init or warmup
         recorder.onAudioBuffer = { [weak self] samples in
@@ -66,7 +76,19 @@ final class StreamingDictationController {
             fputs("[streaming-dictation] mic started\n", stderr)
         } catch {
             fputs("[streaming-dictation] mic start failed: \(error)\n", stderr)
-            return
+            isActive = false
+            recorder.cancel()
+            bufferLock.withLock {
+                sampleBuffer.removeAll()
+            }
+            queueLock.withLock {
+                chunkQueue.removeAll()
+            }
+            drainLock.withLock {
+                isDraining = false
+            }
+            streamState = nil
+            return false
         }
 
         // Init stream state in background — audio buffers queue while this runs
@@ -80,6 +102,7 @@ final class StreamingDictationController {
                 fputs("[streaming-dictation] failed to create stream state: \(error)\n", stderr)
             }
         }
+        return true
     }
 
     /// Stop recording, process any remaining audio, return final transcript.
@@ -102,8 +125,9 @@ final class StreamingDictationController {
             if padded.count < chunkSamples {
                 padded.append(contentsOf: [Float](repeating: 0, count: chunkSamples - padded.count))
             }
+            let finalChunk = padded
             queueLock.withLock {
-                chunkQueue.append(padded)
+                chunkQueue.append(finalChunk)
             }
         }
 
@@ -125,15 +149,14 @@ final class StreamingDictationController {
     private func handleAudioBuffer(_ samples: [Float]) {
         guard isActive else { return }
 
-        // Accumulate samples and extract full chunks
-        var newChunks: [[Float]] = []
-
-        bufferLock.withLock {
+        let newChunks = bufferLock.withLock { () -> [[Float]] in
+            var chunks: [[Float]] = []
             sampleBuffer.append(contentsOf: samples)
             while sampleBuffer.count >= chunkSamples {
-                newChunks.append(Array(sampleBuffer.prefix(chunkSamples)))
+                chunks.append(Array(sampleBuffer.prefix(chunkSamples)))
                 sampleBuffer.removeFirst(chunkSamples)
             }
+            return chunks
         }
 
         if !newChunks.isEmpty {
@@ -149,9 +172,15 @@ final class StreamingDictationController {
             if shouldStart {
                 Task { [weak self] in
                     await self?.drainQueue()
-                    self?.drainLock.withLock { self?.isDraining = false }
+                    self?.markDrainFinished()
                 }
             }
+        }
+    }
+
+    private func markDrainFinished() {
+        drainLock.withLock {
+            isDraining = false
         }
     }
 

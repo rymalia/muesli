@@ -5,7 +5,17 @@ import os
 
 /// Mic recorder using AVAudioEngine for real-time buffer access.
 /// Used by MeetingSession for VAD-driven chunk rotation (zero-gap file switching).
-final class StreamingMicRecorder {
+protocol StreamingDictationRecording: AnyObject {
+    var onAudioBuffer: (([Float]) -> Void)? { get set }
+    var preferredInputDeviceID: AudioObjectID? { get set }
+
+    func prepare() throws
+    func start() throws
+    func stop() -> URL?
+    func cancel()
+}
+
+final class StreamingMicRecorder: StreamingDictationRecording {
     /// Called with 4096-sample Float chunks (256ms at 16kHz) for VAD processing.
     var onAudioBuffer: (([Float]) -> Void)?
     /// Called with 16-bit PCM mono samples for retained meeting recording.
