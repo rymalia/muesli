@@ -270,7 +270,8 @@ struct StreamingDictationControllerTests {
         let recorder = InspectableStreamingDictationRecorder()
         let controller = StreamingDictationController(
             transcriber: transcriber,
-            recorder: recorder
+            recorder: recorder,
+            stopStreamStateTimeout: 1.0
         )
 
         #expect(controller.start() == true)
@@ -291,7 +292,8 @@ struct StreamingDictationControllerTests {
         let recorder = InspectableStreamingDictationRecorder()
         let controller = StreamingDictationController(
             transcriber: transcriber,
-            recorder: recorder
+            recorder: recorder,
+            stopStreamStateTimeout: 1.0
         )
 
         #expect(controller.start() == true)
@@ -304,6 +306,29 @@ struct StreamingDictationControllerTests {
 
         #expect(text.isEmpty)
         #expect(elapsed < 2.5)
+    }
+
+    @available(macOS 15, *)
+    @Test("stop waits for cold stream state and drains final queued chunk")
+    func stopWaitsForColdStreamStateAndDrainsFinalQueuedChunk() async {
+        let transcriber = DelayedNemotronStreamingTranscriber()
+        let recorder = InspectableStreamingDictationRecorder()
+        let controller = StreamingDictationController(
+            transcriber: transcriber,
+            recorder: recorder,
+            stopStreamStateTimeout: 2.0
+        )
+
+        #expect(controller.start() == true)
+        recorder.emit(samples: [Float](repeating: 0.2, count: 8960))
+
+        async let stoppedText = stop(controller)
+        try? await Task.sleep(for: .milliseconds(1_100))
+        await transcriber.releaseState()
+
+        let text = await stoppedText
+        #expect(text == " hello")
+        #expect(await transcriber.transcribeCalls == 1)
     }
 }
 

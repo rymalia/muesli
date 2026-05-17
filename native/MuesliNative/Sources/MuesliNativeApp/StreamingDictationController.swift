@@ -94,26 +94,30 @@ final class StreamingDictationController {
     private var stoppingSessionID: UUID?
     private var streamStateTask: Task<Void, Never>?
     private let chunkSamples = 8960  // 560ms at 16kHz
-    private static let stopStreamStateTimeout: TimeInterval = 1.0
+    private let stopStreamStateTimeout: TimeInterval
     private static let stopDrainTimeout: TimeInterval = 1.0
 
     init(
         transcriber: NemotronStreamingTranscriber,
         preferredInputDeviceID: AudioObjectID? = nil,
-        recorder: StreamingDictationRecording = StreamingMicRecorder()
+        recorder: StreamingDictationRecording = StreamingMicRecorder(),
+        stopStreamStateTimeout: TimeInterval = 10.0
     ) {
         self.transcriber = NemotronStreamingTranscriberAdapter(transcriber)
         self.recorder = recorder
+        self.stopStreamStateTimeout = stopStreamStateTimeout
         recorder.preferredInputDeviceID = preferredInputDeviceID
     }
 
     init(
         transcriber: NemotronStreamingTranscribing,
         preferredInputDeviceID: AudioObjectID? = nil,
-        recorder: StreamingDictationRecording = StreamingMicRecorder()
+        recorder: StreamingDictationRecording = StreamingMicRecorder(),
+        stopStreamStateTimeout: TimeInterval = 10.0
     ) {
         self.transcriber = transcriber
         self.recorder = recorder
+        self.stopStreamStateTimeout = stopStreamStateTimeout
         recorder.preferredInputDeviceID = preferredInputDeviceID
     }
 
@@ -168,15 +172,16 @@ final class StreamingDictationController {
         }
 
         // Init stream state in background — audio buffers queue while this runs
-        let initializationTask = Task {
+        let transcriber = self.transcriber
+        let initializationTask = Task { [weak self] in
             do {
                 let state = try await transcriber.makeStreamState()
-                guard self.isCurrentSession(sessionID) else { return }
+                guard let self, self.isCurrentSession(sessionID) else { return }
                 streamState = state
                 fputs("[streaming-dictation] stream state ready, draining queued chunks\n", stderr)
                 startDrainIfNeeded(sessionID: sessionID)
             } catch {
-                guard self.isCurrentSession(sessionID) else { return }
+                guard let self, self.isCurrentSession(sessionID) else { return }
                 fputs("[streaming-dictation] failed to create stream state: \(error)\n", stderr)
                 self.failActiveSession(sessionID: sessionID, error: error)
             }
@@ -253,7 +258,7 @@ final class StreamingDictationController {
             let streamStateReady = await self.waitForStreamStateInitialization(
                 initializationTask,
                 sessionID: sessionID,
-                timeout: Self.stopStreamStateTimeout
+                timeout: self.stopStreamStateTimeout
             )
             guard self.isCurrentSession(sessionID) else {
                 self.completeStop(sessionID: sessionID, with: self.fullTranscript)
