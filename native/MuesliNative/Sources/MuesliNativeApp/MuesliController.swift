@@ -4445,6 +4445,7 @@ final class MuesliController: NSObject {
         pendingDictationStopStartedAt = nil
         setState(.idle)
         meetingMonitor.resumeAfterCooldown()
+        meetingMonitor.refreshState()
         finishDictationLatencyTrace("cancelled")
         syncDictationRecorderWarmup(reason: "cancel")
     }

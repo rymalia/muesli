@@ -144,12 +144,12 @@ private enum SystemSoundPlayer {
         guard !cleanupRegistered else { return }
         cleanupRegistered = true
         atexit {
-            SystemSoundPlayer.disposeCachedSounds()
+            SystemSoundPlayer.disposeCachedSoundsBestEffort()
         }
     }
 
-    private static func disposeCachedSounds() {
-        queue.sync {
+    private static func disposeCachedSoundsBestEffort() {
+        queue.async {
             for soundID in soundIDs.values {
                 AudioServicesDisposeSystemSoundID(soundID)
             }
