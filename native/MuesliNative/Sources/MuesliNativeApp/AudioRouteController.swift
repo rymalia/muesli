@@ -24,6 +24,7 @@ struct AudioOutputDeviceDescription: Equatable {
     let hasInputStreams: Bool
     let outputTerminalTypes: Set<UInt32>
     let outputDataSourceKinds: Set<UInt32>
+    let nominalSampleRate: Double?
 
     init(
         name: String?,
@@ -31,7 +32,8 @@ struct AudioOutputDeviceDescription: Equatable {
         hasOutputStreams: Bool,
         hasInputStreams: Bool,
         outputTerminalTypes: Set<UInt32> = [],
-        outputDataSourceKinds: Set<UInt32> = []
+        outputDataSourceKinds: Set<UInt32> = [],
+        nominalSampleRate: Double? = nil
     ) {
         self.name = name
         self.transportType = transportType
@@ -39,6 +41,7 @@ struct AudioOutputDeviceDescription: Equatable {
         self.hasInputStreams = hasInputStreams
         self.outputTerminalTypes = outputTerminalTypes
         self.outputDataSourceKinds = outputDataSourceKinds
+        self.nominalSampleRate = nominalSampleRate
     }
 }
 
@@ -58,6 +61,14 @@ enum AudioRouteClassifier {
             || device.transportType == kAudioDeviceTransportTypeBluetoothLE {
             // Avoid brand/product-name heuristics. Bluetooth headsets expose input
             // streams; output-only Bluetooth routes behave like external speakers.
+            // If CoreAudio only exposes generic Bluetooth metadata, a high-rate
+            // output with an input stream is more likely a speakerphone/soundbar
+            // profile than a headset microphone profile.
+            if device.hasInputStreams,
+               let sampleRate = device.nominalSampleRate,
+               sampleRate > 24_000 {
+                return .speakerLike
+            }
             return device.hasInputStreams ? .headphoneLike : .speakerLike
         }
 
@@ -344,7 +355,8 @@ final class CoreAudioDeviceInspector: CoreAudioDeviceInspecting {
                 hasOutputStreams: hasStreams(deviceID: deviceID, scope: kAudioDevicePropertyScopeOutput),
                 hasInputStreams: hasStreams(deviceID: deviceID, scope: kAudioDevicePropertyScopeInput),
                 outputTerminalTypes: outputTerminalTypes(for: deviceID),
-                outputDataSourceKinds: outputDataSourceKinds(for: deviceID)
+                outputDataSourceKinds: outputDataSourceKinds(for: deviceID),
+                nominalSampleRate: nominalSampleRate(for: deviceID)
             )
         )
     }

@@ -43,6 +43,7 @@ struct DictationAudioSessionManagerTests {
         harness.manager.beginRecording(mode: "start", duckingEnabled: true)
         harness.wait()
 
+        #expect(harness.recorder.activateCalls == 2)
         #expect(harness.recorder.prepareCalls == 1)
         #expect(harness.recorder.startCalls == 1)
         #expect(harness.events.contains { event in
@@ -87,6 +88,7 @@ struct DictationAudioSessionManagerTests {
         harness.wait()
 
         #expect(harness.route.preferredInputCalls == 1)
+        #expect(harness.recorder.activateCalls == 1)
         #expect(harness.recorder.preferredInputDeviceID == 82)
         #expect(harness.recorder.startCalls == 1)
     }
@@ -104,7 +106,8 @@ struct DictationAudioSessionManagerTests {
         harness.wait()
 
         #expect(harness.route.preferredInputCalls == 2)
-        #expect(harness.recorder.lastWarmInputDeviceID == 82)
+        #expect(harness.recorder.activateCalls == 2)
+        #expect(harness.recorder.lastWarmInputDeviceID == nil)
         #expect(harness.recorder.preferredInputDeviceID == nil)
         #expect(harness.ducking.beginCalls == [false, true])
     }

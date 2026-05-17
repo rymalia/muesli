@@ -18,6 +18,21 @@ struct AudioRouteClassifierTests {
         #expect(route == .headphoneLike)
     }
 
+    @Test("Bluetooth headset low-rate input profile is headphone-like")
+    func bluetoothHeadsetLowRateInputProfileIsHeadphoneLike() {
+        let route = AudioRouteClassifier.outputRouteKind(
+            for: AudioOutputDeviceDescription(
+                name: nil,
+                transportType: kAudioDeviceTransportTypeBluetooth,
+                hasOutputStreams: true,
+                hasInputStreams: true,
+                nominalSampleRate: 16_000
+            )
+        )
+
+        #expect(route == .headphoneLike)
+    }
+
     @Test("generic Bluetooth output defaults to headphone-like")
     func genericBluetoothOutputDefaultsToHeadphoneLike() {
         let route = AudioRouteClassifier.outputRouteKind(
@@ -40,6 +55,21 @@ struct AudioRouteClassifierTests {
                 transportType: kAudioDeviceTransportTypeBluetooth,
                 hasOutputStreams: true,
                 hasInputStreams: false
+            )
+        )
+
+        #expect(route == .speakerLike)
+    }
+
+    @Test("Bluetooth speakerphone high-rate generic route is speaker-like")
+    func bluetoothSpeakerphoneHighRateGenericRouteIsSpeakerLike() {
+        let route = AudioRouteClassifier.outputRouteKind(
+            for: AudioOutputDeviceDescription(
+                name: "Wireless Output",
+                transportType: kAudioDeviceTransportTypeBluetooth,
+                hasOutputStreams: true,
+                hasInputStreams: true,
+                nominalSampleRate: 48_000
             )
         )
 

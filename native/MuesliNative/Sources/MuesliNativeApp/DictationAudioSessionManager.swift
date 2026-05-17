@@ -169,10 +169,11 @@ final class DictationAudioSessionManager: @unchecked Sendable {
             self.recorder.preferredInputDeviceID = self.routeSnapshot.preferredInputDeviceID
             self.recorder.keepsAudioGraphWarm = true
             do {
+                self.emitLatency("activation_begin:\(mode)")
+                try self.recorder.activateWarmEngine(preferredInputDeviceID: self.routeSnapshot.preferredInputDeviceID)
                 self.emitLatency("engine_prepare_begin")
                 try self.recorder.prepare()
                 self.emitLatency("engine_prepare_end")
-                self.emitLatency("activation_begin:\(mode)")
                 try self.recorder.start()
                 self.emitLatency("activation_end:\(mode)")
                 fputs("[dictation-session] recording mode=\(mode) \(self.routeSnapshot.debugDescription)\n", stderr)
