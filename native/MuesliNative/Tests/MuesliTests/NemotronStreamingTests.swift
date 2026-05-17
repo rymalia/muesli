@@ -121,6 +121,25 @@ struct StreamingDictationControllerTests {
         #expect(recorder.cancelCalls == 2)
         #expect(failures.value == 2)
     }
+
+    @available(macOS 15, *)
+    @Test("start prepares routed input before mic capture")
+    func startPreparesRoutedInputBeforeMicCapture() {
+        let transcriber = FailingNemotronStreamingTranscriber()
+        let recorder = InspectableStreamingDictationRecorder()
+        let controller = StreamingDictationController(
+            transcriber: transcriber,
+            preferredInputDeviceID: 82,
+            recorder: recorder
+        )
+
+        #expect(controller.start() == true)
+        #expect(recorder.preparedPreferredInputDeviceID == 82)
+        #expect(recorder.startedPreferredInputDeviceID == 82)
+        #expect(recorder.prepareCalls == 1)
+        #expect(recorder.startCalls == 1)
+        controller.cancel()
+    }
 }
 
 private final class FailingStreamingDictationRecorder: StreamingDictationRecording {
@@ -172,13 +191,17 @@ private final class InspectableStreamingDictationRecorder: StreamingDictationRec
     var startCalls = 0
     var stopCalls = 0
     var cancelCalls = 0
+    var preparedPreferredInputDeviceID: AudioObjectID?
+    var startedPreferredInputDeviceID: AudioObjectID?
 
     func prepare() throws {
         prepareCalls += 1
+        preparedPreferredInputDeviceID = preferredInputDeviceID
     }
 
     func start() throws {
         startCalls += 1
+        startedPreferredInputDeviceID = preferredInputDeviceID
     }
 
     func stop() -> URL? {

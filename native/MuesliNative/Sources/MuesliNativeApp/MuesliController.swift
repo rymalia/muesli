@@ -4622,6 +4622,9 @@ final class MuesliController: NSObject {
         let outputMode = currentDictationOutputMode
         let transcriptionBackend = isTestMode ? (dictationTestBackend ?? selectedBackend) : selectedBackend
         let transcriptionLanguage = isTestMode ? (dictationTestCohereLanguage ?? config.resolvedCohereLanguage) : config.resolvedCohereLanguage
+        let capturedContext = capturedDictationContext
+        let promptContext = capturedContext.map { DictationContextCapture.formatForPrompt($0) }
+        let storageContext = capturedContext.map { DictationContextCapture.formatForStorage($0) } ?? ""
         let task = Task { [weak self] in
             guard let self else { return }
             defer {
@@ -4635,7 +4638,7 @@ final class MuesliController: NSObject {
                     cohereLanguage: transcriptionLanguage,
                     enablePostProcessor: self.isPostProcessorReady,
                     customWords: self.serializedCustomWords(),
-                    appContext: self.capturedDictationContext.map { DictationContextCapture.formatForPrompt($0) }
+                    appContext: promptContext
                 )
                 // Drop result if test was cancelled (user navigated away)
                 try Task.checkCancellation()
@@ -4663,11 +4666,10 @@ final class MuesliController: NSObject {
                     }
                     return
                 }
-                let appContextString = self.capturedDictationContext.map { DictationContextCapture.formatForStorage($0) } ?? ""
                 _ = try? self.dictationStore.insertDictation(
                     text: text,
                     durationSeconds: duration,
-                    appContext: appContextString,
+                    appContext: storageContext,
                     startedAt: startedAt,
                     endedAt: Date()
                 )

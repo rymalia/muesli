@@ -55,6 +55,7 @@ final class StreamingMicRecorder: StreamingDictationRecording {
 
     func start() throws {
         guard !isRunning else { return }
+        try prepare()
 
         let fileState = try createNewFile()
         lock.withLock { $0 = fileState }
