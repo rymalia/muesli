@@ -4360,7 +4360,7 @@ final class MuesliController: NSObject {
                     return
                 }
                 let currentPreferredInputDeviceID =
-                    self.dictationAudioRoutingController.preferredInputDeviceIDForDictation()
+                    self.dictationAudioRoutingController.cachedPreferredInputDeviceIDForDictation()
                 let controller = StreamingDictationController(
                     transcriber: transcriber,
                     preferredInputDeviceID: currentPreferredInputDeviceID
