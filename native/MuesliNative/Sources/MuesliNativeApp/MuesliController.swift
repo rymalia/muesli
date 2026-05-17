@@ -2674,7 +2674,6 @@ final class MuesliController: NSObject {
     @discardableResult
     func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false, endDate: Date? = nil) -> Bool {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return false }
-        cancelDictationAudioSessionForMeetingRecordingIfNeeded()
         guard let meetingBackend = normalizeMeetingTranscriptionSelectionForAvailability() else {
             presentErrorAlert(
                 title: "Meeting failed to start",
@@ -2704,6 +2703,7 @@ final class MuesliController: NSObject {
             presentErrorAlert(title: "Meeting failed to start", message: error.localizedDescription)
             return false
         }
+        cancelDictationAudioSessionForMeetingRecordingIfNeeded()
         isStartingMeetingRecording = true
         syncDictationRecorderWarmup(reason: "meeting-start")
         meetingStartMeetingID = meetingID

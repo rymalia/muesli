@@ -33,12 +33,27 @@ struct AudioRouteClassifierTests {
         #expect(route == .unknown)
     }
 
-    @Test("Bluetooth input without terminal metadata is marked ambiguous")
-    func bluetoothInputWithoutTerminalMetadataIsMarkedAmbiguous() {
+    @Test("Bluetooth input without terminal metadata is unknown but not ambiguous")
+    func bluetoothInputWithoutTerminalMetadataIsUnknownButNotAmbiguous() {
         let classification = AudioRouteClassifier.outputRouteClassification(
             for: AudioOutputDeviceDescription(
                 name: nil,
                 transportType: kAudioDeviceTransportTypeBluetooth,
+                hasOutputStreams: true,
+                hasInputStreams: true
+            )
+        )
+
+        #expect(classification.kind == .unknown)
+        #expect(!classification.isAmbiguousBluetooth)
+    }
+
+    @Test("Bluetooth LE input without terminal metadata is marked ambiguous")
+    func bluetoothLEInputWithoutTerminalMetadataIsMarkedAmbiguous() {
+        let classification = AudioRouteClassifier.outputRouteClassification(
+            for: AudioOutputDeviceDescription(
+                name: nil,
+                transportType: kAudioDeviceTransportTypeBluetoothLE,
                 hasOutputStreams: true,
                 hasInputStreams: true
             )

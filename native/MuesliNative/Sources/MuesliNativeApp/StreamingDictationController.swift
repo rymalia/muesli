@@ -401,8 +401,13 @@ final class StreamingDictationController {
     private func finishStoppedSession(sessionID: UUID) -> String {
         let didFinishCurrentSession = bufferLock.withLock { () -> Bool in
             guard activeSessionID == sessionID || stoppingSessionID == sessionID else { return false }
-            activeSessionID = nil
-            stoppingSessionID = nil
+            if activeSessionID == sessionID {
+                activeSessionID = nil
+                isActive = false
+            }
+            if stoppingSessionID == sessionID {
+                stoppingSessionID = nil
+            }
             return true
         }
         guard didFinishCurrentSession else { return fullTranscript }
