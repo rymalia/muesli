@@ -63,11 +63,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return !feedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    @objc func openPreferences(_ sender: Any?) {
+        controller?.openSettingsTab()
+    }
+
     private static func installStandardEditMenu() {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(AppDelegate.openPreferences(_:)),
+            keyEquivalent: ","
+        )
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Quit \(AppIdentity.displayName)",
             action: #selector(NSApplication.terminate(_:)),
