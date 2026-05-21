@@ -3553,9 +3553,20 @@ final class MuesliController: NSObject {
         setState(.transcribing)
         sessionToStop.onProgress = { [weak self] stage in
             Task { @MainActor [weak self] in
-                self?.setMeetingProcessingStage(stage)
+                guard let self, !self.isMeetingRecording() else { return }
+                self.setMeetingProcessingStage(stage)
             }
         }
+
+        // Unblock new recordings immediately — transcription runs in the background
+        activeMeetingSession = nil
+        activeMeetingID = nil
+        isStoppingMeetingRecording = false
+        endMeetingActivity()
+        meetingMonitor.resumeAfterCooldown()
+        meetingMonitor.refreshState()
+        syncDictationRecorderWarmup(reason: "meeting-stop")
+
         Task { [weak self] in
             guard let self else { return }
             var meetingTitle = "Meeting"
@@ -3600,38 +3611,35 @@ final class MuesliController: NSObject {
                 if let failedLiveMeetingID {
                     self.resolveLiveMeetingAfterStopFailure(id: failedLiveMeetingID)
                 }
-                self.activeMeetingSession = nil
-                self.activeMeetingID = nil
-                self.isStoppingMeetingRecording = false
-                self.endMeetingActivity()
-                self.setState(.idle)
-                self.meetingMonitor.resumeAfterCooldown()
-                self.meetingMonitor.refreshState()
-                self.statusBarController?.refresh()
+                if !self.isMeetingRecording() && !self.isStartingMeetingRecording {
+                    self.setState(.idle)
+                    self.statusBarController?.refresh()
+                }
                 self.historyWindowController?.reload()
                 self.syncAppState()
-                self.syncDictationRecorderWarmup(reason: "meeting-stop")
                 if let meetingResult {
                     self.cleanupTemporaryMeetingAudioFiles(for: meetingResult)
                 }
                 TelemetryDeck.signal("meeting.completed")
 
                 self.presentedMeetingCandidate = nil
-                let savedMeetingID = completedMeetingID
-                self.meetingNotification.show(
-                    title: "Transcription complete",
-                    subtitle: meetingTitle,
-                    actionLabel: "View Notes",
-                    onStartRecording: { [weak self] in
-                        guard let self else { return }
-                        if let savedMeetingID {
-                            self.showMeetingDocument(id: savedMeetingID)
+                if !self.isMeetingRecording() {
+                    let savedMeetingID = completedMeetingID
+                    self.meetingNotification.show(
+                        title: "Transcription complete",
+                        subtitle: meetingTitle,
+                        actionLabel: "View Notes",
+                        onStartRecording: { [weak self] in
+                            guard let self else { return }
+                            if let savedMeetingID {
+                                self.showMeetingDocument(id: savedMeetingID)
+                            }
+                            self.syncAppState()
+                            self.historyWindowController?.show()
                         }
-                        self.syncAppState()
-                        self.historyWindowController?.show()
-                    }
-                )
-                self.updateMeetingNotificationVisibility()
+                    )
+                    self.updateMeetingNotificationVisibility()
+                }
             }
         }
     }
