@@ -2626,7 +2626,7 @@ final class MuesliController: NSObject {
         guard !isMeetingRecording(), !isStartingMeetingRecording, backgroundMeetingProcessingCount == 0 else {
             presentErrorAlert(
                 title: "Couldn't Clear Meeting History",
-                message: "Stop the current meeting recording before clearing saved meetings."
+                message: "A meeting is recording or still being processed. Please wait before clearing saved meetings."
             )
             return
         }
@@ -3546,15 +3546,20 @@ final class MuesliController: NSObject {
         let liveMeetingID = activeMeetingID
         if let liveMeetingID {
             flushCachedMeetingManualNotes(id: liveMeetingID, sync: false)
+            flushCachedMeetingTitle(id: liveMeetingID)
             try? dictationStore.updateMeetingStatus(id: liveMeetingID, status: .processing)
             syncAppState()
         }
         indicator.setMeetingRecording(false, config: config)
         indicator.setTranscribingTitle("Transcribing", config: config)
         setState(.transcribing)
+        let processingGeneration = backgroundMeetingProcessingCount + 1
         sessionToStop.onProgress = { [weak self] stage in
             Task { @MainActor [weak self] in
-                guard let self, !self.isMeetingRecording(), !self.isStartingMeetingRecording else { return }
+                guard let self,
+                      !self.isMeetingRecording(),
+                      !self.isStartingMeetingRecording,
+                      self.backgroundMeetingProcessingCount == processingGeneration else { return }
                 self.setMeetingProcessingStage(stage)
             }
         }
@@ -3613,7 +3618,7 @@ final class MuesliController: NSObject {
                 if let failedLiveMeetingID {
                     self.resolveLiveMeetingAfterStopFailure(id: failedLiveMeetingID)
                 }
-                if !self.isMeetingRecording() && !self.isStartingMeetingRecording {
+                if !self.isMeetingRecording() && !self.isStartingMeetingRecording && self.backgroundMeetingProcessingCount == 0 {
                     self.setState(.idle)
                     self.statusBarController?.refresh()
                 }
