@@ -2007,11 +2007,22 @@ final class MuesliController: NSObject {
     }
 
     @objc func checkForUpdates() {
-        presentStandardUpdateCheck()
+        switch appState.sparkleUpdateStatus {
+        case .available, .downloaded:
+            installAvailableUpdate()
+        case .checking, .busy, .installing:
+            showBusyStatus(
+                UpdateInteractionPolicy.busyMessage,
+                restoring: appState.sparkleUpdateStatus
+            )
+        case .idle, .upToDate, .disabled, .failed:
+            openHistoryWindow(tab: .about)
+            probeForUpdateInformation()
+        }
     }
 
     func retryUpdateCheck() {
-        presentStandardUpdateCheck()
+        probeForUpdateInformation()
     }
 
     func installAvailableUpdate() {
@@ -2039,6 +2050,22 @@ final class MuesliController: NSObject {
             return
         }
         updaterController.checkForUpdates(nil)
+    }
+
+    private func probeForUpdateInformation() {
+        guard let updaterController else {
+            appState.sparkleUpdateStatus = .disabled(message: "Update checks are disabled for this build.")
+            return
+        }
+        guard !updaterController.updater.sessionInProgress else {
+            showBusyStatus(
+                UpdateInteractionPolicy.busyMessage,
+                restoring: appState.sparkleUpdateStatus
+            )
+            return
+        }
+        appState.sparkleUpdateStatus = .checking
+        updaterController.updater.checkForUpdateInformation()
     }
 
     private func showBusyStatus(_ message: String, restoring previousStatus: SparkleUpdateStatus) {

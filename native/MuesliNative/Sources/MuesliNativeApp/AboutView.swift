@@ -37,12 +37,14 @@ struct AboutView: View {
                             .foregroundStyle(MuesliTheme.textPrimary)
                     }
 
-                    Divider().background(MuesliTheme.surfaceBorder)
+                    if showsManualUpdateCheckRow {
+                        Divider().background(MuesliTheme.surfaceBorder)
 
-                    aboutRow("Check for Updates") {
-                        let action = updatePrimaryAction
-                        actionButton(action.title, icon: action.icon) {
-                            performUpdateAction(action)
+                        aboutRow("Check for Updates") {
+                            let action = updatePrimaryAction
+                            actionButton(action.title, icon: action.icon) {
+                                performUpdateAction(action)
+                            }
                         }
                     }
                 }
@@ -198,6 +200,15 @@ struct AboutView: View {
             return .retry
         case .idle, .checking, .busy, .installing, .upToDate, .disabled:
             return .check
+        }
+    }
+
+    private var showsManualUpdateCheckRow: Bool {
+        switch appState.sparkleUpdateStatus {
+        case .idle, .upToDate:
+            return true
+        case .checking, .busy, .available, .downloaded, .installing, .disabled, .failed:
+            return false
         }
     }
 
