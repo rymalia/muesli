@@ -949,14 +949,25 @@ enum MeetingSummaryClient {
             pathParts = suffixParts
         } else if pathParts.last == suffixParts.first {
             pathParts = Array(pathParts.dropLast()) + suffixParts
-        } else if pathParts.last == suffixParts.last || pathParts.suffix(suffixParts.count).elementsEqual(suffixParts) {
-            // Already points at a completion/messages endpoint, including provider-specific paths.
-        } else {
+        } else if !isCompleteEndpointPath(pathParts, endpointSuffixParts: suffixParts) {
             pathParts.append(contentsOf: suffixParts)
         }
 
         components.path = "/" + pathParts.joined(separator: "/")
         return components.url
+    }
+
+    private static func isCompleteEndpointPath(_ pathParts: [String], endpointSuffixParts suffixParts: [String]) -> Bool {
+        if pathParts.suffix(suffixParts.count).elementsEqual(suffixParts) {
+            return true
+        }
+        if suffixParts == ["v1", "chat", "completions"] {
+            return pathParts.suffix(2).elementsEqual(["chat", "completions"])
+        }
+        if suffixParts == ["v1", "messages"] {
+            return pathParts.count >= suffixParts.count && pathParts.last == "messages"
+        }
+        return false
     }
 
     static func generateTitle(transcript: String, config: AppConfig) async -> String? {

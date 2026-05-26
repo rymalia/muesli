@@ -420,6 +420,12 @@ struct MeetingSummaryClientTests {
                 "https://models.example.com/llm/v2/chat/completions"
         )
 
+        config.customLLMURL = "https://models.example.com/llm/v2/completions"
+        #expect(
+            MeetingSummaryClient.resolveCustomLLMURL(config: config, format: .openAI)?.absoluteString ==
+                "https://models.example.com/llm/v2/completions/v1/chat/completions"
+        )
+
         config.customLLMURL = "https://models.example.com/openai/deployments/my-model/chat/completions?api-version=2024-10-21"
         #expect(
             MeetingSummaryClient.resolveCustomLLMURL(config: config, format: .openAI)?.absoluteString ==
@@ -488,6 +494,12 @@ struct MeetingSummaryClientTests {
         #expect(
             MeetingSummaryClient.resolveCustomLLMURL(config: config, format: .anthropic)?.absoluteString ==
                 "https://models.example.com/anthropic/v2/messages"
+        )
+
+        config.customLLMURL = "https://models.example.com/messages"
+        #expect(
+            MeetingSummaryClient.resolveCustomLLMURL(config: config, format: .anthropic)?.absoluteString ==
+                "https://models.example.com/messages/v1/messages"
         )
 
         config.customLLMURL = "https://models.example.com/v1/messages/"
