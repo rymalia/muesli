@@ -52,7 +52,7 @@ final class BrowserMeetingActivityCollector {
                 shouldAttemptActiveTabFallback: shouldAttemptActiveTabFallback
             )
 
-            guard case .meeting(let normalized) = probeResult else {
+            guard case .meeting(let normalized, let isFocused) = probeResult else {
                 if case .noMeeting = probeResult {
                     cachedMeetings.removeValue(forKey: app.bundleID)
                 }
@@ -66,7 +66,7 @@ final class BrowserMeetingActivityCollector {
                 url: normalized.url,
                 normalizedID: normalized.id,
                 platform: normalized.platform,
-                isFocused: app.isActive
+                isFocused: isFocused
             )
             cachedMeetings[app.bundleID] = CachedBrowserMeeting(context: context, observedAt: now)
             liveMeetings.append(context)
@@ -86,12 +86,12 @@ final class BrowserMeetingActivityCollector {
                 return .noMeeting
             }
             if let normalized = MeetingURLNormalizer.normalize(rawURL) {
-                return .meeting(normalized)
+                return .meeting(normalized, isFocused: app.isActive)
             }
         }
 
-        if let normalized = axMeetingURL(for: app) {
-            return .meeting(normalized)
+        if let axMeeting = axMeetingURL(for: app) {
+            return .meeting(axMeeting.normalized, isFocused: app.isActive && axMeeting.isFocused)
         }
 
         guard activeTabFallbackEnabled || activeTabURLProviderOverride != nil else {
@@ -103,7 +103,10 @@ final class BrowserMeetingActivityCollector {
         guard let url = await activeTabURL(for: app) else {
             return .noMeeting
         }
-        return MeetingURLNormalizer.normalize(url).map(BrowserMeetingURLProbeResult.meeting) ?? .noMeeting
+        guard let normalized = MeetingURLNormalizer.normalize(url) else {
+            return .noMeeting
+        }
+        return .meeting(normalized, isFocused: app.isActive)
     }
 
     private func pruneCache(runningBrowserIDs: Set<String>, now: Date) {
@@ -134,17 +137,26 @@ final class BrowserMeetingActivityCollector {
         )
     }
 
-    private func axMeetingURL(for app: RunningAppSnapshot) -> NormalizedMeetingURL? {
+    private func axMeetingURL(for app: RunningAppSnapshot) -> (normalized: NormalizedMeetingURL, isFocused: Bool)? {
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
 
-        for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
-            if let window = axWindowAttribute(attribute, from: axApp),
-               let normalized = normalizedMeetingURL(from: window) {
-                return normalized
-            }
+        if let window = axWindowAttribute(kAXFocusedWindowAttribute, from: axApp),
+           let normalized = normalizedMeetingURL(from: window) {
+            return (normalized, true)
+        }
+        if let window = axWindowAttribute(kAXMainWindowAttribute, from: axApp),
+           let normalized = normalizedMeetingURL(from: window) {
+            return (normalized, false)
         }
 
-        return nil
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement],
+              let normalized = windows.lazy.compactMap(normalizedMeetingURL(from:)).first else {
+            return nil
+        }
+
+        return (normalized, false)
     }
 
     private func axWindowAttribute(_ attribute: String, from app: AXUIElement) -> AXUIElement? {
@@ -190,7 +202,7 @@ final class BrowserMeetingActivityCollector {
 
         let errorDelegate = BrowserScriptingBridgeErrorDelegate()
         browser.delegate = errorDelegate
-        browser.timeout = 2
+        browser.timeout = 120
 
         guard let windows = browser.value(forKey: "windows") as? SBElementArray,
               let frontWindow = windows.firstObject as? NSObject else {
@@ -220,7 +232,7 @@ final class BrowserMeetingActivityCollector {
 }
 
 private enum BrowserMeetingURLProbeResult {
-    case meeting(NormalizedMeetingURL)
+    case meeting(NormalizedMeetingURL, isFocused: Bool)
     case noMeeting
     case skipped
 }
