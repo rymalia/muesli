@@ -93,8 +93,8 @@ struct BrowserMeetingActivityCollectorTests {
         #expect(meetings.map(\.normalizedID) == ["googleMeet:meet.google.com/pwm-txwq-txy"])
     }
 
-    @Test("refresh preserves cache when active-tab fallback probe is throttled")
-    func refreshPreservesCacheWhenActiveTabFallbackProbeIsThrottled() async {
+    @Test("refresh returns cached room when active-tab fallback probe is throttled")
+    func refreshReturnsCachedRoomWhenActiveTabFallbackProbeIsThrottled() async {
         var activeTabURL: String? = "https://meet.google.com/pwm-txwq-txy"
         let collector = BrowserMeetingActivityCollector(
             activeTabURLProvider: { _ in activeTabURL }
@@ -122,7 +122,7 @@ struct BrowserMeetingActivityCollectorTests {
         )
 
         #expect(first.count == 1)
-        #expect(second.isEmpty)
+        #expect(second.map(\.normalizedID) == ["googleMeet:meet.google.com/pwm-txwq-txy"])
         #expect(cachedAfterSkippedRefresh.map(\.normalizedID) == ["googleMeet:meet.google.com/pwm-txwq-txy"])
     }
 

@@ -70,18 +70,17 @@ final class BrowserMeetingActivityCollector {
                 liveMeetings.append(context)
             case .noMeeting:
                 cachedMeetings.removeValue(forKey: app.bundleID)
-            case .inconclusive:
+            case .inconclusive, .skipped:
                 if let cached = cachedMeetings[app.bundleID] {
                     liveMeetings.append(context(cached.context, runningApps: browserApps))
                 }
-            case .skipped:
-                continue
             }
         }
 
-        // Refresh passes return fresh probe results except for inconclusive
-        // fallback timeouts, where a TTL-bound cache entry prevents transient
-        // ScriptingBridge stalls from flickering an active browser meeting off.
+        // Refresh passes return fresh probe results unless the active-tab
+        // fallback is throttled or inconclusive. In those cases, a TTL-bound
+        // cache entry prevents transient stalls from flickering a browser
+        // meeting off.
         return liveMeetings
     }
 
