@@ -256,7 +256,8 @@ private struct ThresholdEditor: View {
     @State private var isPresented = false
     @State private var draftPercent = ""
 
-    private static let bounds = 0.70...0.95
+    private static let bounds = 0.70...0.99
+    private static let sliderTint = Color.adaptive(dark: 0xFFFFFF, light: 0x000000)
 
     var body: some View {
         Button {
@@ -331,12 +332,12 @@ private struct ThresholdEditor: View {
                 in: Self.bounds,
                 step: 0.01
             )
-            .tint(MuesliTheme.accent)
+            .tint(Self.sliderTint)
 
             HStack {
                 Text("70%")
                 Spacer()
-                Text("95%")
+                Text("99%")
             }
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(MuesliTheme.textTertiary)
