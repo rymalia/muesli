@@ -5,30 +5,56 @@ import MuesliCore
 import os
 
 final class MeetingChunkCollector {
+    private struct PendingTask {
+        let id: UUID
+        let task: Task<[SpeechSegment], Never>
+    }
+
     private struct State {
-        var tasks: [Task<[SpeechSegment], Never>] = []
+        // Only in-flight tasks live here. Completed tasks are retired into
+        // completedSegments so Task objects and their captured state don't
+        // accumulate for the full meeting duration.
+        var pendingTasks: [PendingTask] = []
+        var completedSegments: [SpeechSegment] = []
         var isClosed = false
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State())
 
-    func add(_ task: Task<[SpeechSegment], Never>) -> Bool {
+    /// Register a transcription task. Returns the retire ID to pass to retire(id:segments:)
+    /// once the task completes.
+    func add(_ task: Task<[SpeechSegment], Never>) -> (registered: Bool, retireID: UUID) {
+        let id = UUID()
+        let registered = lock.withLock { state in
+            guard !state.isClosed else { return false }
+            state.pendingTasks.append(PendingTask(id: id, task: task))
+            return true
+        }
+        return (registered, id)
+    }
+
+    /// Move a completed task's result into the collector and drop the Task reference.
+    /// Must be called from the watcher Task after awaiting the transcription task's value.
+    func retire(id: UUID, segments: [SpeechSegment]) -> Bool {
         lock.withLock { state in
             guard !state.isClosed else { return false }
-            state.tasks.append(task)
+            state.completedSegments.append(contentsOf: segments)
+            state.pendingTasks.removeAll { $0.id == id }
             return true
         }
     }
 
     func closeAndDrainSortedSegments() async -> [SpeechSegment] {
-        let tasksToAwait = lock.withLock { state in
+        let (tasksToAwait, alreadyCompleted) = lock.withLock { state in
             state.isClosed = true
-            let pendingTasks = state.tasks
-            state.tasks.removeAll()
-            return pendingTasks
+            let tasks = state.pendingTasks.map { $0.task }
+            let completed = state.completedSegments
+            state.pendingTasks.removeAll()
+            state.completedSegments.removeAll()
+            return (tasks, completed)
         }
 
-        var segments: [SpeechSegment] = []
+        var segments = alreadyCompleted
         for task in tasksToAwait {
             segments.append(contentsOf: await task.value)
         }
@@ -44,11 +70,11 @@ final class MeetingChunkCollector {
     func cancelAll() {
         let tasksToCancel = lock.withLock { state in
             state.isClosed = true
-            let pendingTasks = state.tasks
-            state.tasks.removeAll()
-            return pendingTasks
+            let tasks = state.pendingTasks.map { $0.task }
+            state.pendingTasks.removeAll()
+            state.completedSegments.removeAll()
+            return tasks
         }
-
         tasksToCancel.forEach { $0.cancel() }
     }
 }
@@ -113,6 +139,7 @@ final class MeetingSession {
     var onProgress: ((MeetingProcessingStage) -> Void)?
     var manualNotesProvider: (() async -> String?)?
     var liveTitleProvider: (() async -> String?)?
+    var onChunkTranscribed: (([SpeechSegment], String) -> Void)?
     private let screenContextCollector = MeetingScreenContextCollector()
     private var diagnostics: MeetingSessionDiagnostics?
 
@@ -574,7 +601,15 @@ final class MeetingSession {
             )
             return segments
         }
-        if !micChunkCollector.add(task) {
+        let (registered, retireID) = micChunkCollector.add(task)
+        if registered {
+            Task { [weak self] in
+                let segments = await task.value
+                guard self?.micChunkCollector.retire(id: retireID, segments: segments) == true else { return }
+                guard !segments.isEmpty else { return }
+                self?.onChunkTranscribed?(segments, "You")
+            }
+        } else {
             task.cancel()
             cleanupTemporaryChunkURLs(rawChunkURL)
         }
@@ -633,7 +668,15 @@ final class MeetingSession {
             }
             return []
         }
-        if !systemChunkCollector.add(task) {
+        let (registered, retireID) = systemChunkCollector.add(task)
+        if registered {
+            Task { [weak self] in
+                let segments = await task.value
+                guard self?.systemChunkCollector.retire(id: retireID, segments: segments) == true else { return }
+                guard !segments.isEmpty else { return }
+                self?.onChunkTranscribed?(segments, "Others")
+            }
+        } else {
             task.cancel()
         }
     }

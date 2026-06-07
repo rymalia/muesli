@@ -743,7 +743,10 @@ final class MuesliController: NSObject {
 
         for meeting in meetings {
             do {
-                try dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
+                let recovered = try dictationStore.recoverLiveMeetingFromTranscriptCheckpoints(id: meeting.id)
+                if !recovered {
+                    try dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
+                }
                 staleLiveMeetingRecoveryFailures.remove(meeting.id)
             } catch {
                 staleLiveMeetingRecoveryFailures.insert(meeting.id)
@@ -3283,6 +3286,45 @@ final class MuesliController: NSObject {
                         return self.liveMeetingTitle(id: meetingID)
                     }
                 }
+                meetingSession.onChunkTranscribed = { [weak self, weak meetingSession] segments, speaker in
+                    Task { @MainActor [weak self, weak meetingSession] in
+                        guard let self else { return }
+                        guard self.appState.liveMeetingTranscriptOwnerID == meetingID else { return }
+                        let liveTranscriptStart = meetingSession?.startTime ?? Date()
+                        let liveTranscriptCalendar = Calendar(identifier: .gregorian)
+                        let entries = segments.compactMap { segment -> LiveTranscriptCheckpointEntry? in
+                            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !text.isEmpty else { return nil }
+                            let timestampDate = liveTranscriptStart.addingTimeInterval(segment.start)
+                            let components = liveTranscriptCalendar.dateComponents([.hour, .minute, .second], from: timestampDate)
+                            let timestamp = String(
+                                format: "%02d:%02d:%02d",
+                                components.hour ?? 0,
+                                components.minute ?? 0,
+                                components.second ?? 0
+                            )
+                            return LiveTranscriptCheckpointEntry(
+                                timestampLabel: timestamp,
+                                speaker: speaker,
+                                startSeconds: segment.start,
+                                endSeconds: segment.end,
+                                text: text
+                            )
+                        }
+                        guard !entries.isEmpty else { return }
+                        do {
+                            try self.dictationStore.appendLiveTranscriptCheckpoints(meetingID: meetingID, entries: entries)
+                        } catch {
+                            fputs("[muesli-native] failed to checkpoint live transcript for meeting \(meetingID): \(error)\n", stderr)
+                        }
+                        // Live view is arrival-order closed captions. Recovery reads checkpoints sorted
+                        // by segment timestamps, so the durable fallback stays temporally ordered.
+                        let lines = entries.map { "[\($0.timestampLabel)] \($0.speaker): \($0.text)" }
+                        self.appState.liveMeetingTranscript += lines.joined(separator: "\n") + "\n"
+                    }
+                }
+                appState.liveMeetingTranscriptOwnerID = meetingID
+                appState.liveMeetingTranscript = ""
                 try await meetingSession.start()
                 if Task.isCancelled || canceledMeetingStartIDs.contains(meetingID) {
                     meetingSession.discard()
@@ -3723,6 +3765,10 @@ final class MuesliController: NSObject {
                 self.endMeetingActivity()
                 self.historyWindowController?.reload()
                 self.syncAppState()
+                if self.appState.liveMeetingTranscriptOwnerID == liveMeetingID {
+                    self.appState.liveMeetingTranscript = ""
+                    self.appState.liveMeetingTranscriptOwnerID = nil
+                }
                 if let meetingResult {
                     self.cleanupTemporaryMeetingAudioFiles(for: meetingResult)
                 }
