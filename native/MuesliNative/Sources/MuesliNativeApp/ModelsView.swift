@@ -153,7 +153,7 @@ struct ModelsView: View {
                                 .foregroundStyle(MuesliTheme.textSecondary)
                         }
 
-                        Text("Qwen and streaming backends. Hidden by default because these are still slower and less polished.")
+                        Text("SenseVoice, Qwen, and streaming backends. Hidden by default because these are still slower and less polished.")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(MuesliTheme.textPrimary)
                             .opacity(0.8)

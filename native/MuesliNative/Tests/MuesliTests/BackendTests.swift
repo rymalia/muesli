@@ -46,6 +46,23 @@ struct FluidAudioTranscriberTests {
     }
 }
 
+@Suite("SenseVoiceTranscriber")
+struct SenseVoiceTranscriberTests {
+
+    @Test("sensevoice model uses FluidAudio CoreML repo")
+    func senseVoiceModel() {
+        #expect(BackendOption.senseVoiceSmall.backend == "sensevoice")
+        #expect(BackendOption.senseVoiceSmall.model.contains("FluidInference"))
+        #expect(BackendOption.senseVoiceSmall.model.contains("sensevoice"))
+    }
+
+    @Test("sensevoice stays experimental")
+    func senseVoiceExperimental() {
+        #expect(BackendOption.experimental.contains(.senseVoiceSmall))
+        #expect(!BackendOption.onboarding.contains(.senseVoiceSmall))
+    }
+}
+
 @Suite("NemotronStreamingTranscriber")
 struct NemotronStreamingTranscriberTests {
 
@@ -71,6 +88,7 @@ struct BackendCoverageTests {
             .mapValues(\.count)
         #expect(backendCounts["fluidaudio"]! >= 2, "FluidAudio should have at least 2 models")
         #expect(backendCounts["whisper"]! >= 1, "Whisper should have at least 1 model")
+        #expect(backendCounts["sensevoice"]! >= 1, "SenseVoice should have at least 1 model")
         // Nemotron excluded from .all until RNNT decode is validated
         // #expect(backendCounts["nemotron"]! >= 1)
     }
