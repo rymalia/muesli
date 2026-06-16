@@ -16,7 +16,6 @@ final class DictionarySuggestionPromptController {
         suggestion: DictionarySuggestion,
         anchorFrame: NSRect?,
         onAdd: @escaping () -> Void,
-        onLater: @escaping () -> Void,
         onIgnore: @escaping () -> Void
     ) {
         dismiss()
@@ -54,10 +53,6 @@ final class DictionarySuggestionPromptController {
             onAdd: { [weak self] in
                 self?.dismiss()
                 onAdd()
-            },
-            onLater: { [weak self] in
-                self?.dismiss()
-                onLater()
             },
             onIgnore: { [weak self] in
                 self?.dismiss()
@@ -243,7 +238,6 @@ private final class DictionarySuggestionPromptView: NSView {
     private let cardFrame: NSRect
     private let suggestion: DictionarySuggestion
     private let onAdd: () -> Void
-    private let onLater: () -> Void
     private let onIgnore: () -> Void
 
     init(
@@ -251,13 +245,11 @@ private final class DictionarySuggestionPromptView: NSView {
         cardFrame: NSRect,
         suggestion: DictionarySuggestion,
         onAdd: @escaping () -> Void,
-        onLater: @escaping () -> Void,
         onIgnore: @escaping () -> Void
     ) {
         self.cardFrame = cardFrame
         self.suggestion = suggestion
         self.onAdd = onAdd
-        self.onLater = onLater
         self.onIgnore = onIgnore
         super.init(frame: frame)
         wantsLayer = true
@@ -289,13 +281,12 @@ private final class DictionarySuggestionPromptView: NSView {
         cardView.addSubview(iconView)
 
         let textX: CGFloat = 56
-        let buttonWidth: CGFloat = 86
+        let buttonWidth: CGFloat = 82
         let buttonGap: CGFloat = 8
         let buttonY: CGFloat = 18
         let buttonHeight: CGFloat = 30
         let ignoreX = cardFrame.width - 16 - buttonWidth
-        let laterX = ignoreX - buttonGap - buttonWidth
-        let addX = laterX - buttonGap - buttonWidth
+        let addX = ignoreX - buttonGap - buttonWidth
         let textWidth = cardFrame.width - textX - 18
 
         let title = label("Add correction?", font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -315,10 +306,6 @@ private final class DictionarySuggestionPromptView: NSView {
         let add = button(title: "Add", action: #selector(addTapped), isPrimary: true)
         add.frame = NSRect(x: addX, y: buttonY, width: buttonWidth, height: buttonHeight)
         cardView.addSubview(add)
-
-        let later = button(title: "Later", action: #selector(laterTapped), isPrimary: false)
-        later.frame = NSRect(x: laterX, y: buttonY, width: buttonWidth, height: buttonHeight)
-        cardView.addSubview(later)
 
         let ignore = button(title: "Ignore", action: #selector(ignoreTapped), isPrimary: false)
         ignore.frame = NSRect(x: ignoreX, y: buttonY, width: buttonWidth, height: buttonHeight)
@@ -354,10 +341,6 @@ private final class DictionarySuggestionPromptView: NSView {
 
     @objc private func addTapped() {
         onAdd()
-    }
-
-    @objc private func laterTapped() {
-        onLater()
     }
 
     @objc private func ignoreTapped() {

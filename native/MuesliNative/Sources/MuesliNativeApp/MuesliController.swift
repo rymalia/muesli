@@ -1621,7 +1621,6 @@ final class MuesliController: NSObject {
             onAdd: { [weak self] in
                 self?.acceptDictionarySuggestion(suggestion)
             },
-            onLater: {},
             onIgnore: { [weak self] in
                 self?.dismissDictionarySuggestion(suggestion)
             }
