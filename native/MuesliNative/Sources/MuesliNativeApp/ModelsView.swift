@@ -986,6 +986,8 @@ struct ModelsView: View {
             try? fm.removeItem(at: CanaryQwenModelStore.cacheDirectory())
         case "cohere":
             try? fm.removeItem(at: CohereTranscribeModelStore.cacheDirectory())
+        case "sensevoice":
+            SenseVoiceTranscriber.deleteModelFiles(fileManager: fm)
         case "fluidaudio":
             // FluidAudio models are in ~/Library/Application Support/FluidAudio/Models/
             let supportDir = fm.homeDirectoryForCurrentUser
@@ -1059,6 +1061,8 @@ struct ModelsView: View {
             return CanaryQwenModelStore.isAvailableLocally()
         case "cohere":
             return CohereTranscribeModelStore.isAvailableLocally()
+        case "sensevoice":
+            return SenseVoiceTranscriber.isModelDownloaded()
         default:
             return false
         }

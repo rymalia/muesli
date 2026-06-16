@@ -61,6 +61,12 @@ struct SenseVoiceTranscriberTests {
         #expect(BackendOption.experimental.contains(.senseVoiceSmall))
         #expect(!BackendOption.onboarding.contains(.senseVoiceSmall))
     }
+
+    @Test("sensevoice cache path uses FluidAudio model store")
+    func senseVoiceCachePath() {
+        #expect(SenseVoiceTranscriber.cacheRelativePath == "Library/Application Support/FluidAudio/Models/sensevoice-small-coreml")
+        #expect(SenseVoiceTranscriber.cacheDirectory().path.hasSuffix(SenseVoiceTranscriber.cacheRelativePath))
+    }
 }
 
 @Suite("NemotronStreamingTranscriber")

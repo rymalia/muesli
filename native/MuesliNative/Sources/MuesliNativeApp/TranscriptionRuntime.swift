@@ -519,6 +519,7 @@ actor TranscriptionCoordinator {
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return SpeechTranscriptionResult(
             text: text,
+            // FluidAudio's SenseVoice API returns plain text only, so timestamped segments are not available here.
             segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
         )
     }

@@ -22,15 +22,13 @@ actor SenseVoiceTranscriber {
 
         fputs("[sensevoice] downloading/loading models...\n", stderr)
         let loaded = try await SenseVoiceManager.load(precision: .fp16) { downloadProgress in
-            DispatchQueue.main.async {
-                switch downloadProgress.phase {
-                case .listing:
-                    progress?(downloadProgress.fractionCompleted, "Preparing SenseVoice download...")
-                case .downloading(_, _):
-                    progress?(downloadProgress.fractionCompleted, "Downloading SenseVoice...")
-                case .compiling(_):
-                    progress?(downloadProgress.fractionCompleted, "Compiling SenseVoice...")
-                }
+            switch downloadProgress.phase {
+            case .listing:
+                progress?(downloadProgress.fractionCompleted, "Preparing SenseVoice download...")
+            case .downloading(_, _):
+                progress?(downloadProgress.fractionCompleted, "Downloading SenseVoice...")
+            case .compiling(_):
+                progress?(downloadProgress.fractionCompleted, "Compiling SenseVoice...")
             }
         }
         self.manager = loaded
@@ -49,9 +47,18 @@ actor SenseVoiceTranscriber {
         manager = nil
     }
 
+    static let cacheRelativePath = "Library/Application Support/FluidAudio/Models/sensevoice-small-coreml"
+
+    static func cacheDirectory(fileManager: FileManager = .default) -> URL {
+        fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(cacheRelativePath)
+    }
+
     static func isModelDownloaded() -> Bool {
-        let supportDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/FluidAudio/Models/sensevoice-small-coreml")
-        return SenseVoiceModels.modelsExist(at: supportDir, precision: .fp16)
+        SenseVoiceModels.modelsExist(at: cacheDirectory(), precision: .fp16)
+    }
+
+    static func deleteModelFiles(fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: cacheDirectory(fileManager: fileManager))
     }
 }
