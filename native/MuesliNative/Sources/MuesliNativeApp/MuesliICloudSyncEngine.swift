@@ -50,7 +50,7 @@ final class UserDefaultsICloudChangeTokenStore: ICloudChangeTokenStore {
 
     init(
         defaults: UserDefaults = .standard,
-        key: String = "muesli.icloud.textRecords.privateDefaultZone.serverChangeToken.v1"
+        key: String = "muesli.icloud.textRecords.MuesliSyncZone.serverChangeToken.v1"
     ) {
         self.defaults = defaults
         self.key = key
@@ -100,25 +100,36 @@ private enum ICloudSyncAccountError: LocalizedError {
 final class MuesliICloudSyncEngine {
     private enum Schema {
         static let containerIdentifier = "iCloud.com.mueslihq.muesli"
+        static let syncZoneName = "MuesliSyncZone"
         static let textRecordType = "MuesliTextRecord"
-        static let textSubscriptionID = "muesli-text-records-private-v1"
+        static let textSubscriptionID = "muesli-text-records-sync-zone-v1"
+        static let migratedDefaultZoneKey = "muesli.icloud.textRecords.defaultToSyncZoneMigrated.v1"
+
+        static var syncZoneID: CKRecordZone.ID {
+            CKRecordZone.ID(zoneName: syncZoneName, ownerName: CKCurrentUserDefaultName)
+        }
     }
 
     private let container: CKContainer
     private let database: CKDatabase
     private let changeTokenStore: ICloudChangeTokenStore
+    private let defaults: UserDefaults
 
     init(
         container: CKContainer = CKContainer(identifier: Schema.containerIdentifier),
-        changeTokenStore: ICloudChangeTokenStore = UserDefaultsICloudChangeTokenStore()
+        changeTokenStore: ICloudChangeTokenStore = UserDefaultsICloudChangeTokenStore(),
+        defaults: UserDefaults = .standard
     ) {
         self.container = container
         self.database = container.privateCloudDatabase
         self.changeTokenStore = changeTokenStore
+        self.defaults = defaults
     }
 
     func sync(store: DictationStore) async throws -> ICloudSyncResult {
         try await verifyAccountAvailable()
+        try await ensureSyncZone()
+        try await migrateDefaultZoneIfNeeded(store: store)
 
         let remoteRecords = try await fetchChangedTextRecords()
         var downloaded = ICloudSyncKindCounts()
@@ -134,7 +145,7 @@ final class MuesliICloudSyncEngine {
         for dirtyRecord in dirtyRecords {
             dirtyRecordsByName[dirtyRecord.id] = dirtyRecord
         }
-        let savedRecords = try await save(records: dirtyRecords.map(Self.cloudRecord(from:)))
+        let savedRecords = try await save(records: dirtyRecords.map(Self.syncZoneCloudRecord(from:)))
         var uploaded = ICloudSyncKindCounts()
         var hasPendingUploads = false
         for savedRecord in savedRecords {
@@ -161,15 +172,14 @@ final class MuesliICloudSyncEngine {
 
     func ensureTextRecordSubscription() async throws {
         try await verifyAccountAvailable()
+        try await ensureSyncZone()
         do {
             _ = try await fetchSubscription(id: Schema.textSubscriptionID)
             return
         } catch let error as CKError where error.code == .unknownItem {
-            let subscription = CKQuerySubscription(
-                recordType: Schema.textRecordType,
-                predicate: NSPredicate(value: true),
+            let subscription = CKRecordZoneSubscription(
+                zoneID: Schema.syncZoneID,
                 subscriptionID: Schema.textSubscriptionID,
-                options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
             )
             let notificationInfo = CKSubscription.NotificationInfo()
             notificationInfo.shouldSendContentAvailable = true
@@ -183,6 +193,17 @@ final class MuesliICloudSyncEngine {
             return false
         }
         return notification.subscriptionID == Schema.textSubscriptionID
+    }
+
+    func ensureSyncZone() async throws {
+        do {
+            _ = try await fetchZone(id: Schema.syncZoneID)
+        } catch {
+            guard Self.isSyncZoneMissing(error) else { throw error }
+            _ = try await save(zone: CKRecordZone(zoneName: Schema.syncZoneName))
+            changeTokenStore.clearToken()
+            defaults.set(false, forKey: Schema.migratedDefaultZoneKey)
+        }
     }
 
     private func verifyAccountAvailable() async throws {
@@ -216,24 +237,16 @@ final class MuesliICloudSyncEngine {
     }
 
     private func fetchChangedTextRecords() async throws -> [CKRecord] {
-        // CloudKit's app default zone rejects CKFetchRecordZoneChangesOperation
-        // with "AppDefaultZone does not support getChanges call". Earlier builds
-        // tried it first and fell back to a full query, but that can leave the
-        // sync task stuck if the rejected operation never calls its completion.
-        // Keep the token-based implementation below for a future custom zone,
-        // but use the reliable query path for the current default-zone schema.
-        changeTokenStore.clearToken()
-        return try await fetchAllTextRecords()
+        try await fetchChangedTextRecordsUsingStoredToken()
     }
 
     private func fetchChangedTextRecordsUsingStoredToken() async throws -> [CKRecord] {
-        let zoneID = CKRecordZone.default().zoneID
         var previousToken = changeTokenStore.loadToken()
         var records: [CKRecord] = []
 
         while true {
             let page = try await fetchZoneChangesPage(
-                zoneID: zoneID,
+                zoneID: Schema.syncZoneID,
                 previousServerChangeToken: previousToken
             )
             records.append(contentsOf: page.records)
@@ -247,7 +260,36 @@ final class MuesliICloudSyncEngine {
         return records
     }
 
-    private func fetchAllTextRecords() async throws -> [CKRecord] {
+    private func migrateDefaultZoneIfNeeded(store: DictationStore) async throws {
+        guard !defaults.bool(forKey: Schema.migratedDefaultZoneKey) else { return }
+
+        let legacyDefaultZoneRecords = try await fetchAllDefaultZoneTextRecords()
+        for record in legacyDefaultZoneRecords {
+            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
+            _ = try store.upsertSyncedTextRecord(syncRecord)
+        }
+
+        changeTokenStore.clearToken()
+        let existingSyncZoneRecords = try await fetchChangedTextRecordsUsingStoredToken()
+        for record in existingSyncZoneRecords {
+            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
+            _ = try store.upsertSyncedTextRecord(syncRecord)
+        }
+
+        let migrationRecords = try store.textRecordsForSyncMigration()
+        _ = try await saveInBatches(records: migrationRecords.map(Self.syncZoneCloudRecord(from:)))
+
+        changeTokenStore.clearToken()
+        let primedSyncZoneRecords = try await fetchChangedTextRecordsUsingStoredToken()
+        for record in primedSyncZoneRecords {
+            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
+            _ = try store.upsertSyncedTextRecord(syncRecord)
+        }
+
+        defaults.set(true, forKey: Schema.migratedDefaultZoneKey)
+    }
+
+    private func fetchAllDefaultZoneTextRecords() async throws -> [CKRecord] {
         var cursor: CKQueryOperation.Cursor?
         var records: [CKRecord] = []
 
@@ -379,6 +421,20 @@ final class MuesliICloudSyncEngine {
         }
     }
 
+    private func fetchZone(id: CKRecordZone.ID) async throws -> CKRecordZone {
+        try await withCheckedThrowingContinuation { continuation in
+            database.fetch(withRecordZoneID: id) { zone, error in
+                if let zone {
+                    continuation.resume(returning: zone)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(throwing: CKError(.unknownItem))
+                }
+            }
+        }
+    }
+
     private func save(records: [CKRecord]) async throws -> [CKRecord] {
         guard !records.isEmpty else { return [] }
         return try await withCheckedThrowingContinuation { continuation in
@@ -408,6 +464,18 @@ final class MuesliICloudSyncEngine {
         }
     }
 
+    private func saveInBatches(records: [CKRecord], batchSize: Int = 200) async throws -> [CKRecord] {
+        guard !records.isEmpty else { return [] }
+        var savedRecords: [CKRecord] = []
+        var start = records.startIndex
+        while start < records.endIndex {
+            let end = records.index(start, offsetBy: batchSize, limitedBy: records.endIndex) ?? records.endIndex
+            savedRecords.append(contentsOf: try await save(records: Array(records[start..<end])))
+            start = end
+        }
+        return savedRecords
+    }
+
     private func save(subscription: CKSubscription) async throws -> CKSubscription {
         try await withCheckedThrowingContinuation { continuation in
             database.save(subscription) { savedSubscription, error in
@@ -422,8 +490,22 @@ final class MuesliICloudSyncEngine {
         }
     }
 
-    private static func cloudRecord(from record: SyncTextRecord) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: record.id)
+    private func save(zone: CKRecordZone) async throws -> CKRecordZone {
+        try await withCheckedThrowingContinuation { continuation in
+            database.save(zone) { savedZone, error in
+                if let savedZone {
+                    continuation.resume(returning: savedZone)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(throwing: CKError(.internalError))
+                }
+            }
+        }
+    }
+
+    private static func syncZoneCloudRecord(from record: SyncTextRecord) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: record.id, zoneID: Schema.syncZoneID)
         let cloud = CKRecord(recordType: Schema.textRecordType, recordID: recordID)
         cloud["kind"] = record.kind.rawValue as NSString
         cloud["title"] = record.title as NSString?
@@ -483,12 +565,38 @@ final class MuesliICloudSyncEngine {
             nsError.localizedDescription,
             nsError.localizedFailureReason,
             nsError.localizedRecoverySuggestion,
+            String(describing: nsError),
         ]
             .compactMap { $0?.lowercased() }
             .joined(separator: " ")
         return message.contains("appdefaultzone")
             && message.contains("does not support")
             && message.contains("change")
+    }
+
+    private static func isSyncZoneMissing(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            if ckError.code == .unknownItem {
+                return true
+            }
+            if ckError.code == .partialFailure,
+               ckError.partialErrorsByItemID?.values.contains(where: { partialError in
+                   (partialError as? CKError)?.code == .unknownItem
+               }) == true {
+                return true
+            }
+        }
+
+        let nsError = error as NSError
+        let message = [
+            nsError.localizedDescription,
+            nsError.localizedFailureReason,
+            nsError.localizedRecoverySuggestion,
+        ]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+        return message.contains(Schema.syncZoneName.lowercased())
+            && (message.contains("zone not found") || message.contains("zone does not exist"))
     }
 
     private static var desiredTextRecordKeys: [CKRecord.FieldKey] {

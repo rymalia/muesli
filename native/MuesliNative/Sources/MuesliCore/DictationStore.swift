@@ -1421,6 +1421,56 @@ public final class DictationStore {
         return records
     }
 
+    public func textRecordsForSyncMigration(limit: Int = 5_000) throws -> [SyncTextRecord] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        try ensureCloudRecordNames(db: db)
+
+        var records: [SyncTextRecord] = []
+        let dictationSQL = """
+        SELECT cloud_record_name, raw_text, app_context, timestamp, started_at, ended_at,
+               duration_seconds, word_count, source, updated_at, deleted_at, cloud_change_tag
+        FROM dictations
+        WHERE cloud_record_name IS NOT NULL
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ?
+        """
+        var dictationStatement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, dictationSQL, -1, &dictationStatement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(dictationStatement) }
+        sqlite3_bind_int(dictationStatement, 1, Int32(limit))
+        while sqlite3_step(dictationStatement) == SQLITE_ROW {
+            guard let record = makeSyncDictationRecord(dictationStatement) else { continue }
+            records.append(record)
+        }
+
+        let remaining = max(limit - records.count, 0)
+        guard remaining > 0 else { return records }
+
+        let meetingSQL = """
+        SELECT cloud_record_name, title, raw_transcript, formatted_notes, manual_notes,
+               start_time, duration_seconds, word_count, source, updated_at, deleted_at,
+               cloud_change_tag
+        FROM meetings
+        WHERE cloud_record_name IS NOT NULL
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ?
+        """
+        var meetingStatement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, meetingSQL, -1, &meetingStatement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(meetingStatement) }
+        sqlite3_bind_int(meetingStatement, 1, Int32(remaining))
+        while sqlite3_step(meetingStatement) == SQLITE_ROW {
+            guard let record = makeSyncMeetingRecord(meetingStatement) else { continue }
+            records.append(record)
+        }
+        return records
+    }
+
     @discardableResult
     public func upsertSyncedTextRecord(_ record: SyncTextRecord) throws -> Bool {
         let db = try openDatabase()
