@@ -1401,8 +1401,8 @@ public final class DictationStore {
 
         let meetingSQL = """
         SELECT cloud_record_name, title, raw_transcript, formatted_notes, manual_notes,
-               start_time, duration_seconds, word_count, source, updated_at, deleted_at,
-               cloud_change_tag
+               start_time, duration_seconds, word_count, source, meeting_status,
+               updated_at, deleted_at, cloud_change_tag
         FROM meetings
         WHERE sync_dirty = 1 AND cloud_record_name IS NOT NULL
         ORDER BY updated_at DESC, id DESC
@@ -1486,8 +1486,8 @@ public final class DictationStore {
         var records: [SyncTextRecord] = []
         let meetingSQL = """
         SELECT cloud_record_name, title, raw_transcript, formatted_notes, manual_notes,
-               start_time, duration_seconds, word_count, source, updated_at, deleted_at,
-               cloud_change_tag
+               start_time, duration_seconds, word_count, source, meeting_status,
+               updated_at, deleted_at, cloud_change_tag
         FROM meetings
         WHERE cloud_record_name IS NOT NULL
         ORDER BY updated_at DESC, id DESC
@@ -1634,8 +1634,9 @@ public final class DictationStore {
         let startTime = stringColumn(statement, index: 5)
         let createdAt = parseISODate(startTime) ?? Date()
         let duration = sqlite3_column_double(statement, 6)
-        let updatedAt = dateFromUnixColumn(statement, index: 9) ?? createdAt
+        let updatedAt = dateFromUnixColumn(statement, index: 10) ?? createdAt
         let source = cloudSyncSource(from: statement, index: 8)
+        let meetingStatus = MeetingStatus(rawValue: stringColumn(statement, index: 9)) ?? .completed
         return SyncTextRecord(
             id: recordName,
             kind: .meeting,
@@ -1644,14 +1645,15 @@ public final class DictationStore {
             summaryText: optionalStringColumn(statement, index: 3),
             manualNotes: optionalStringColumn(statement, index: 4),
             source: source,
+            meetingStatus: meetingStatus,
             createdAt: createdAt,
             updatedAt: updatedAt,
             startedAt: createdAt,
             endedAt: createdAt.addingTimeInterval(duration),
             durationSeconds: duration,
             wordCount: Int(sqlite3_column_int(statement, 7)),
-            isDeleted: sqlite3_column_type(statement, 10) != SQLITE_NULL,
-            cloudChangeTag: optionalStringColumn(statement, index: 11)
+            isDeleted: sqlite3_column_type(statement, 11) != SQLITE_NULL,
+            cloudChangeTag: optionalStringColumn(statement, index: 12)
         )
     }
 
@@ -1768,7 +1770,8 @@ public final class DictationStore {
         sqlite3_bind_double(statement, 4, record.durationSeconds)
         sqlite3_bind_text(statement, 5, (record.text as NSString).utf8String, -1, nil)
         bindOptionalText(record.summaryText, at: 6, statement: statement)
-        sqlite3_bind_text(statement, 7, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
+        let meetingStatus = record.meetingStatus ?? .completed
+        sqlite3_bind_text(statement, 7, (meetingStatus.rawValue as NSString).utf8String, -1, nil)
         sqlite3_bind_text(statement, 8, ((record.manualNotes ?? "") as NSString).utf8String, -1, nil)
         sqlite3_bind_int(statement, 9, Int32(record.wordCount))
         sqlite3_bind_text(statement, 10, ((record.source ?? MeetingSource.meeting.rawValue) as NSString).utf8String, -1, nil)

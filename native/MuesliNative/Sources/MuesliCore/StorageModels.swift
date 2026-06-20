@@ -46,6 +46,7 @@ public struct SyncTextRecord: Identifiable, Codable, Sendable, Equatable {
     public var summaryText: String?
     public var manualNotes: String?
     public var source: String?
+    public var meetingStatus: MeetingStatus?
     public var engineIdentifier: String?
     public var createdAt: Date
     public var updatedAt: Date
@@ -65,6 +66,7 @@ public struct SyncTextRecord: Identifiable, Codable, Sendable, Equatable {
         summaryText: String? = nil,
         manualNotes: String? = nil,
         source: String? = nil,
+        meetingStatus: MeetingStatus? = nil,
         engineIdentifier: String? = nil,
         createdAt: Date,
         updatedAt: Date,
@@ -83,6 +85,7 @@ public struct SyncTextRecord: Identifiable, Codable, Sendable, Equatable {
         self.summaryText = summaryText
         self.manualNotes = manualNotes
         self.source = source
+        self.meetingStatus = meetingStatus
         self.engineIdentifier = engineIdentifier
         self.createdAt = createdAt
         self.updatedAt = updatedAt

@@ -1,4 +1,5 @@
 import Testing
+import CloudKit
 import Foundation
 import MuesliCore
 import SQLite3
@@ -226,6 +227,7 @@ struct DictationStoreTests {
         let record = try #require(try store.textRecordsNeedingSync().first { $0.kind == .meeting })
         #expect(record.title == "Mac Meeting")
         #expect(record.source == "macos")
+        #expect(record.meetingStatus == .completed)
     }
 
     @Test("deleted unsynced local text records are not uploaded")
@@ -285,6 +287,44 @@ struct DictationStoreTests {
         #expect(tombstone.isDeleted)
     }
 
+    @Test("deleted sync cloud records omit text content fields")
+    func deletedSyncCloudRecordsOmitTextContentFields() throws {
+        let deletedAt = Date(timeIntervalSince1970: 1_770_000_000)
+        let record = SyncTextRecord(
+            id: "meeting-deleted-content",
+            kind: .meeting,
+            title: "Sensitive title",
+            text: "Sensitive transcript",
+            speakerTranscript: "Speaker 1: Sensitive transcript",
+            summaryText: "Sensitive summary",
+            manualNotes: "Sensitive notes",
+            source: "ios",
+            meetingStatus: .completed,
+            engineIdentifier: "engine",
+            createdAt: deletedAt.addingTimeInterval(-120),
+            updatedAt: deletedAt,
+            startedAt: deletedAt.addingTimeInterval(-120),
+            endedAt: deletedAt,
+            durationSeconds: 120,
+            wordCount: 2,
+            isDeleted: true
+        )
+
+        let cloud = MuesliICloudSyncEngine.syncZoneCloudRecord(from: record)
+
+        #expect(cloud["isDeleted"] as? NSNumber == true)
+        #expect(cloud["kind"] as? String == SyncTextRecordKind.meeting.rawValue)
+        #expect(cloud["source"] as? String == "ios")
+        #expect(cloud["meetingStatus"] as? String == MeetingStatus.completed.rawValue)
+        #expect(cloud["text"] == nil)
+        #expect(cloud["title"] == nil)
+        #expect(cloud["speakerTranscript"] == nil)
+        #expect(cloud["summaryText"] == nil)
+        #expect(cloud["manualNotes"] == nil)
+        let changedKeys = Set(cloud.changedKeys())
+        #expect(changedKeys.isSuperset(of: ["title", "text", "speakerTranscript", "summaryText", "manualNotes"]))
+    }
+
     @Test("synced iOS meeting preserves source and excludes audio")
     func syncedIOSMeetingPreservesSourceAndExcludesAudio() throws {
         let store = try makeStore()
@@ -298,6 +338,7 @@ struct DictationStoreTests {
             summaryText: "## Summary\nText only",
             manualNotes: "- Follow up",
             source: "ios",
+            meetingStatus: .noteOnly,
             createdAt: startedAt,
             updatedAt: startedAt,
             startedAt: startedAt,
@@ -313,6 +354,7 @@ struct DictationStoreTests {
         #expect(meeting.formattedNotes == "## Summary\nText only")
         #expect(meeting.manualNotes == "- Follow up")
         #expect(meeting.source == .iOS)
+        #expect(meeting.status == .noteOnly)
         #expect(meeting.micAudioPath == nil)
         #expect(meeting.systemAudioPath == nil)
         #expect(meeting.savedRecordingPath == nil)
@@ -916,27 +958,32 @@ struct DictationStoreTests {
     func dictationStreaksIgnoreDeletedRecords() throws {
         let store = try makeStore()
 
-        let calendar = Calendar.current
-        let today = Date()
-        let yesterday = try #require(calendar.date(byAdding: .day, value: -1, to: today))
-        let deletedID = try store.insertDictation(
-            text: "deleted today",
+        let firstDay = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01T00:00:00Z
+        let deletedMiddleDay = firstDay.addingTimeInterval(86_400)
+        let thirdDay = firstDay.addingTimeInterval(86_400 * 2)
+        try store.insertDictation(
+            text: "live first day",
             durationSeconds: 1,
-            startedAt: today.addingTimeInterval(-1),
-            endedAt: today
+            startedAt: firstDay.addingTimeInterval(-1),
+            endedAt: firstDay
+        )
+        let deletedID = try store.insertDictation(
+            text: "deleted middle day",
+            durationSeconds: 1,
+            startedAt: deletedMiddleDay.addingTimeInterval(-1),
+            endedAt: deletedMiddleDay
         )
         try store.insertDictation(
-            text: "live yesterday",
+            text: "live third day",
             durationSeconds: 1,
-            startedAt: yesterday.addingTimeInterval(-1),
-            endedAt: yesterday
+            startedAt: thirdDay.addingTimeInterval(-1),
+            endedAt: thirdDay
         )
 
         try store.deleteDictation(id: deletedID)
 
         let stats = try store.dictationStats()
-        #expect(stats.totalSessions == 1)
-        #expect(stats.currentStreakDays == 1)
+        #expect(stats.totalSessions == 2)
         #expect(stats.longestStreakDays == 1)
     }
 

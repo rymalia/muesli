@@ -540,16 +540,12 @@ final class MuesliICloudSyncEngine {
         }
     }
 
-    private static func syncZoneCloudRecord(from record: SyncTextRecord) -> CKRecord {
+    static func syncZoneCloudRecord(from record: SyncTextRecord) -> CKRecord {
         let recordID = CKRecord.ID(recordName: record.id, zoneID: Schema.syncZoneID)
         let cloud = CKRecord(recordType: Schema.textRecordType, recordID: recordID)
         cloud["kind"] = record.kind.rawValue as NSString
-        cloud["title"] = record.title as NSString?
-        cloud["text"] = record.text as NSString
-        cloud["speakerTranscript"] = record.speakerTranscript as NSString?
-        cloud["summaryText"] = record.summaryText as NSString?
-        cloud["manualNotes"] = record.manualNotes as NSString?
         cloud["source"] = record.source as NSString?
+        cloud["meetingStatus"] = record.meetingStatus?.rawValue as NSString?
         cloud["engineIdentifier"] = record.engineIdentifier as NSString?
         cloud["createdAt"] = record.createdAt as NSDate
         cloud["updatedAt"] = record.updatedAt as NSDate
@@ -559,25 +555,42 @@ final class MuesliICloudSyncEngine {
         cloud["wordCount"] = record.wordCount as NSNumber
         cloud["isDeleted"] = record.isDeleted as NSNumber
         cloud["schemaVersion"] = 1 as NSNumber
+        guard !record.isDeleted else {
+            cloud["title"] = nil as NSString?
+            cloud["text"] = nil as NSString?
+            cloud["speakerTranscript"] = nil as NSString?
+            cloud["summaryText"] = nil as NSString?
+            cloud["manualNotes"] = nil as NSString?
+            return cloud
+        }
+        cloud["title"] = record.title as NSString?
+        cloud["text"] = record.text as NSString
+        cloud["speakerTranscript"] = record.speakerTranscript as NSString?
+        cloud["summaryText"] = record.summaryText as NSString?
+        cloud["manualNotes"] = record.manualNotes as NSString?
         return cloud
     }
 
     private static func syncTextRecord(from record: CKRecord) -> SyncTextRecord? {
         guard let kind = kind(from: record),
-              let text = record["text"] as? String,
               let createdAt = record["createdAt"] as? Date,
               let updatedAt = record["updatedAt"] as? Date else {
+            return nil
+        }
+        let isDeleted = (record["isDeleted"] as? NSNumber)?.boolValue ?? false
+        guard isDeleted || record["text"] is String else {
             return nil
         }
         return SyncTextRecord(
             id: record.recordID.recordName,
             kind: kind,
             title: record["title"] as? String,
-            text: text,
+            text: (record["text"] as? String) ?? "",
             speakerTranscript: record["speakerTranscript"] as? String,
             summaryText: record["summaryText"] as? String,
             manualNotes: record["manualNotes"] as? String,
             source: record["source"] as? String,
+            meetingStatus: (record["meetingStatus"] as? String).flatMap(MeetingStatus.init(rawValue:)),
             engineIdentifier: record["engineIdentifier"] as? String,
             createdAt: createdAt,
             updatedAt: updatedAt,
@@ -585,7 +598,7 @@ final class MuesliICloudSyncEngine {
             endedAt: record["endedAt"] as? Date,
             durationSeconds: (record["durationSeconds"] as? NSNumber)?.doubleValue ?? 0,
             wordCount: (record["wordCount"] as? NSNumber)?.intValue ?? 0,
-            isDeleted: (record["isDeleted"] as? NSNumber)?.boolValue ?? false,
+            isDeleted: isDeleted,
             cloudChangeTag: record.recordChangeTag
         )
     }
@@ -655,6 +668,7 @@ final class MuesliICloudSyncEngine {
             "summaryText",
             "manualNotes",
             "source",
+            "meetingStatus",
             "engineIdentifier",
             "createdAt",
             "updatedAt",
