@@ -298,6 +298,41 @@ struct DictationStoreTests {
         #expect(dirty.text == "Local edit with tied timestamp")
     }
 
+    @Test("same timestamp synced dictation updates clean local row")
+    func sameTimestampSyncedDictationUpdatesCleanLocalRow() throws {
+        let store = try makeStore()
+        let timestamp = Date(timeIntervalSince1970: 1_770_000_000)
+
+        #expect(try store.upsertSyncedTextRecord(SyncTextRecord(
+            id: "dictation-ios-clean-tie",
+            kind: .dictation,
+            text: "Original cloud text",
+            source: "ios",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            durationSeconds: 2,
+            wordCount: 3,
+            cloudChangeTag: "tag-original"
+        )))
+
+        let applied = try store.upsertSyncedTextRecord(SyncTextRecord(
+            id: "dictation-ios-clean-tie",
+            kind: .dictation,
+            text: "Remote tied update",
+            source: "ios",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            durationSeconds: 2,
+            wordCount: 3,
+            cloudChangeTag: "tag-tied"
+        ))
+
+        #expect(applied)
+        let row = try #require(try store.recentDictations(limit: 1).first)
+        #expect(row.rawText == "Remote tied update")
+        #expect(try store.textRecordsNeedingSync().isEmpty)
+    }
+
     @Test("local Mac dictation sync record uses macOS source")
     func localMacDictationSyncRecordUsesMacOSSource() throws {
         let store = try makeStore()
@@ -503,6 +538,52 @@ struct DictationStoreTests {
         #expect(row.title == "Local meeting title")
         let dirty = try #require(try store.textRecordsNeedingSync().first { $0.id == "meeting-ios-tie" })
         #expect(dirty.title == "Local meeting title")
+    }
+
+    @Test("same timestamp synced meeting updates clean local row")
+    func sameTimestampSyncedMeetingUpdatesCleanLocalRow() throws {
+        let store = try makeStore()
+        let timestamp = Date(timeIntervalSince1970: 1_770_000_000)
+
+        #expect(try store.upsertSyncedTextRecord(SyncTextRecord(
+            id: "meeting-ios-clean-tie",
+            kind: .meeting,
+            title: "Original meeting",
+            text: "Original transcript",
+            summaryText: "Original notes",
+            source: "ios",
+            meetingStatus: .completed,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            startedAt: timestamp,
+            endedAt: timestamp.addingTimeInterval(60),
+            durationSeconds: 60,
+            wordCount: 2,
+            cloudChangeTag: "tag-original"
+        )))
+
+        let applied = try store.upsertSyncedTextRecord(SyncTextRecord(
+            id: "meeting-ios-clean-tie",
+            kind: .meeting,
+            title: "Remote tied meeting",
+            text: "Remote transcript",
+            summaryText: "Remote notes",
+            source: "ios",
+            meetingStatus: .completed,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            startedAt: timestamp,
+            endedAt: timestamp.addingTimeInterval(60),
+            durationSeconds: 60,
+            wordCount: 2,
+            cloudChangeTag: "tag-tied"
+        ))
+
+        #expect(applied)
+        let row = try #require(try store.recentMeetings(limit: 1).first)
+        #expect(row.title == "Remote tied meeting")
+        #expect(row.formattedNotes == "Remote notes")
+        #expect(try store.textRecordsNeedingSync().isEmpty)
     }
 
     @Test("deleted unsynced local text records are not uploaded")
