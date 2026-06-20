@@ -779,7 +779,7 @@ final class MuesliController: NSObject {
             do {
                 let recovered = try dictationStore.recoverLiveMeetingFromTranscriptCheckpoints(id: meeting.id)
                 if !recovered {
-                    try dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
+                    try updateMeetingStatusAndScheduleSyncThrowing(id: meeting.id, status: .failed)
                 }
                 staleLiveMeetingRecoveryFailures.remove(meeting.id)
             } catch {
@@ -2642,7 +2642,7 @@ final class MuesliController: NSObject {
                     throw MeetingRetranscriptionError.noDownloadedTranscriptionModel
                 }
 
-                try self.dictationStore.updateMeetingStatus(id: meeting.id, status: .processing)
+                try self.updateMeetingStatusAndScheduleSyncThrowing(id: meeting.id, status: .processing)
                 didSetProcessing = true
                 self.syncAppState()
                 self.historyWindowController?.reload()
@@ -2711,7 +2711,7 @@ final class MuesliController: NSObject {
                     didSetProcessing: didSetProcessing,
                     error: error
                 ) {
-                    try? self.dictationStore.updateMeetingStatus(id: meeting.id, status: status)
+                    self.updateMeetingStatusAndScheduleSync(id: meeting.id, status: status)
                 }
                 self.syncAppState()
                 self.historyWindowController?.reload()
@@ -4086,11 +4086,15 @@ final class MuesliController: NSObject {
 
     private func updateMeetingStatusAndScheduleSync(id: Int64, status: MeetingStatus) {
         do {
-            try dictationStore.updateMeetingStatus(id: id, status: status)
-            scheduleICloudSyncAfterLocalChange()
+            try updateMeetingStatusAndScheduleSyncThrowing(id: id, status: status)
         } catch {
             fputs("[muesli-native] failed to update meeting \(id) status to \(status.rawValue): \(error)\n", stderr)
         }
+    }
+
+    private func updateMeetingStatusAndScheduleSyncThrowing(id: Int64, status: MeetingStatus) throws {
+        try dictationStore.updateMeetingStatus(id: id, status: status)
+        scheduleICloudSyncAfterLocalChange()
     }
 
     private func updateActiveMeetingAudioWarning(meetingID: Int64, health: MeetingMicHealthSnapshot) {
@@ -4131,7 +4135,7 @@ final class MuesliController: NSObject {
         if let liveMeetingID {
             flushCachedMeetingManualNotes(id: liveMeetingID, sync: false)
             flushCachedMeetingTitle(id: liveMeetingID)
-            try? dictationStore.updateMeetingStatus(id: liveMeetingID, status: .processing)
+            updateMeetingStatusAndScheduleSync(id: liveMeetingID, status: .processing)
             syncAppState()
         }
         indicator.setMeetingRecording(false, config: config)
