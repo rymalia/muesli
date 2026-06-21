@@ -345,7 +345,7 @@ struct DictationsView: View {
             if let deviceName = appState.iCloudBridgeRemoteDeviceName {
                 return "Private iCloud text sync is on with \(deviceName). Audio stays local."
             }
-            return "Private iCloud text sync is on. Scan the QR to finish setup on iPhone. Audio stays local."
+            return "Private iCloud text sync is on. Audio stays local."
         case .checkingICloud:
             return "Checking this Mac's iCloud account..."
         case .syncing:
@@ -608,6 +608,7 @@ private struct IPhoneBridgeQRCodeSheet: View {
     let deepLinkURL: URL
     let installURL: URL
     @Environment(\.dismiss) private var dismiss
+    @State private var didCopySetupLink = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing16) {
@@ -659,9 +660,13 @@ private struct IPhoneBridgeQRCodeSheet: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("Copy setup link") {
+                Button(didCopySetupLink ? "Copied!" : "Copy setup link") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(deepLinkURL.absoluteString, forType: .string)
+                    didCopySetupLink = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        didCopySetupLink = false
+                    }
                 }
                 .buttonStyle(.bordered)
             }

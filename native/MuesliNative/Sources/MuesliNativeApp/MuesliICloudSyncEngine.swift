@@ -98,6 +98,8 @@ enum MuesliBridgeDeviceIdentity {
     private static let remoteDeviceNameKey = "muesli.sync.bridge.remoteDeviceName.v1"
     private static let remoteDevicePlatformKey = "muesli.sync.bridge.remoteDevicePlatform.v1"
     private static let remoteDeviceLastSeenAtKey = "muesli.sync.bridge.remoteDeviceLastSeenAt.v1"
+    private static let lastRefreshKey = "muesli.sync.bridge.lastRefreshed.v1"
+    private static let refreshInterval: TimeInterval = 60 * 60
 
     static func local(defaults: UserDefaults = .standard) -> MuesliBridgeDeviceSnapshot {
         let deviceID: String
@@ -131,8 +133,22 @@ enum MuesliBridgeDeviceIdentity {
         UserDefaults.standard.string(forKey: remoteDevicePlatformKey)
     }
 
+    static func shouldRefresh(defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
+        guard defaults.string(forKey: remoteDeviceIDKey) != nil else {
+            return true
+        }
+        guard let lastRefresh = defaults.object(forKey: lastRefreshKey) as? Date else {
+            return true
+        }
+        return now.timeIntervalSince(lastRefresh) >= refreshInterval
+    }
+
+    static func markRefreshed(defaults: UserDefaults = .standard, at date: Date = Date()) {
+        defaults.set(date, forKey: lastRefreshKey)
+    }
+
     static func updateRemoteDevices(from records: [CKRecord], defaults: UserDefaults = .standard) {
-        let localID = local(defaults: defaults).deviceID
+        let localID = defaults.string(forKey: localDeviceIDKey) ?? ""
         let latestRemote = records
             .compactMap(Self.snapshot(from:))
             .filter { $0.deviceID != localID }
@@ -328,10 +344,12 @@ final class MuesliICloudSyncEngine {
     }
 
     private func refreshBridgeDeviceLink() async {
+        guard MuesliBridgeDeviceIdentity.shouldRefresh(defaults: defaults) else { return }
         do {
             try await upsertLocalBridgeDeviceRecord()
             let records = try await fetchBridgeDeviceRecords()
             MuesliBridgeDeviceIdentity.updateRemoteDevices(from: records, defaults: defaults)
+            MuesliBridgeDeviceIdentity.markRefreshed(defaults: defaults)
         } catch {
             fputs("Failed to refresh iCloud bridge device identity: \(error)\n", stderr)
         }

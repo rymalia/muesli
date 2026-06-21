@@ -477,6 +477,9 @@ struct SettingsView: View {
     private var syncLinkedDeviceText: String? {
         guard appState.config.iCloudSyncEnabled else { return nil }
         if let remoteDeviceName = appState.iCloudBridgeRemoteDeviceName {
+            if let platform = appState.iCloudBridgeRemoteDevicePlatform {
+                return "Linked \(platform) device: \(remoteDeviceName)"
+            }
             return "Linked device: \(remoteDeviceName)"
         }
         if let localDeviceName = appState.iCloudBridgeLocalDeviceName {
