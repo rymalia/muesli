@@ -1,3 +1,4 @@
+import ApplicationServices
 import SwiftUI
 import MuesliCore
 
@@ -17,7 +18,7 @@ struct DictionaryView: View {
     @State private var newWord = ""
     @State private var newReplacement = ""
     @State private var newThreshold = 0.85
-    @State private var isShowingScreenContextPrompt = false
+    @State private var isShowingAccessibilityPrompt = false
     @State private var suggestionPage = 0
 
     var body: some View {
@@ -33,14 +34,14 @@ struct DictionaryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(MuesliTheme.backgroundBase)
-        .alert("Enable Screen Context?", isPresented: $isShowingScreenContextPrompt) {
+        .alert("Enable Accessibility?", isPresented: $isShowingAccessibilityPrompt) {
             Button("Cancel", role: .cancel) {}
             Button("Enable") {
-                let granted = controller.requestScreenContextEnable()
+                let granted = controller.requestDictionaryCorrectionAccessibilityEnable()
                 controller.setDictionaryCorrectionPromptsEnabled(granted)
             }
         } message: {
-            Text("Dictionary suggestions need Screen Context to detect text edits after dictation.")
+            Text("Dictionary suggestions need Accessibility to detect text edits after dictation.")
         }
     }
 
@@ -97,8 +98,8 @@ struct DictionaryView: View {
             controller.setDictionaryCorrectionPromptsEnabled(false)
             return
         }
-        guard appState.config.enableScreenContext else {
-            isShowingScreenContextPrompt = true
+        guard AXIsProcessTrusted() else {
+            isShowingAccessibilityPrompt = true
             return
         }
         controller.setDictionaryCorrectionPromptsEnabled(true)

@@ -81,7 +81,7 @@ struct SettingsView: View {
     @State private var googleCalSignInError: String?
     @State private var isSigningInGoogleCal = false
     @State private var pendingDataDestruction: PendingDataDestruction?
-    @State private var isShowingDictionaryScreenContextPrompt = false
+    @State private var isShowingDictionaryAccessibilityPrompt = false
     @State private var isPreviewingClip = false
     @State private var selectedPane: SettingsPane = .general
     @State private var downloadedBackendOptions: [BackendOption] = []
@@ -227,19 +227,19 @@ struct SettingsView: View {
             Text(pendingDataDestruction?.message ?? "")
         }
         .alert(
-            "Enable Screen Context?",
-            isPresented: $isShowingDictionaryScreenContextPrompt
+            "Enable Accessibility?",
+            isPresented: $isShowingDictionaryAccessibilityPrompt
         ) {
             Button("Cancel", role: .cancel) {}
             Button("Enable") {
-                if handleScreenContextToggle(true) {
+                if controller.requestDictionaryCorrectionAccessibilityEnable() {
                     controller.setDictionaryCorrectionPromptsEnabled(true)
                 } else {
                     controller.setDictionaryCorrectionPromptsEnabled(false)
                 }
             }
         } message: {
-            Text("Dictionary suggestions need Screen Context to detect text edits after dictation.")
+            Text("Dictionary suggestions need Accessibility to detect text edits after dictation.")
         }
     }
 
@@ -273,9 +273,9 @@ struct SettingsView: View {
 
     private var screenContextDescription: String {
         if screenRecordingGranted {
-            return "Adds nearby app text, meeting OCR, and post-dictation edit detection. Processed on-device."
+            return "Adds nearby app text and meeting OCR context. Processed on-device."
         }
-        return "Requires Screen Recording for nearby app text, meeting OCR, and post-dictation edit detection."
+        return "Requires Screen Recording. Adds nearby app text and meeting OCR context."
     }
 
     @ViewBuilder
@@ -535,7 +535,7 @@ struct SettingsView: View {
                 Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow(
                     "Dictionary suggestions",
-                    description: "Suggest adding words when you correct dictation output. Requires Screen Context."
+                    description: "Suggest adding words when you correct dictation output. Requires Accessibility."
                 ) {
                     settingsSwitch(isOn: appState.config.enableDictionaryCorrectionPrompts) { newValue in
                         handleDictionaryCorrectionPromptsToggle(newValue)
@@ -1484,8 +1484,8 @@ struct SettingsView: View {
             controller.setDictionaryCorrectionPromptsEnabled(false)
             return
         }
-        guard appState.config.enableScreenContext else {
-            isShowingDictionaryScreenContextPrompt = true
+        guard AXIsProcessTrusted() else {
+            isShowingDictionaryAccessibilityPrompt = true
             return
         }
         controller.setDictionaryCorrectionPromptsEnabled(true)

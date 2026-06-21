@@ -894,8 +894,12 @@ final class MuesliController: NSObject {
         let previousComputerUseHotkeyTriggerThresholdMS = config.computerUseHotkeyTriggerThresholdMS
         let previousMeetingRecordingHotkeyTriggerThresholdMS = config.meetingRecordingHotkeyTriggerThresholdMS
         let previousEnableScreenContext = config.enableScreenContext
+        let previousEnableDictionaryCorrectionPrompts = config.enableDictionaryCorrectionPrompts
         mutate(&config)
         if previousEnableScreenContext, !config.enableScreenContext {
+            dictationCorrectionMonitor.cancel()
+        }
+        if previousEnableDictionaryCorrectionPrompts, !config.enableDictionaryCorrectionPrompts {
             dictationCorrectionMonitor.cancel()
         }
         config.hotkeyTriggerThresholdMS = HotkeyTriggerTiming.clampedMilliseconds(config.hotkeyTriggerThresholdMS)
@@ -2019,6 +2023,14 @@ final class MuesliController: NSObject {
             dictationCorrectionMonitor.cancel()
         }
         updateConfig { $0.enableDictionaryCorrectionPrompts = enabled }
+    }
+
+    @discardableResult
+    func requestDictionaryCorrectionAccessibilityEnable() -> Bool {
+        guard !AXIsProcessTrusted() else { return true }
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+        return AXIsProcessTrusted()
     }
 
     @discardableResult
@@ -6207,7 +6219,7 @@ final class MuesliController: NSObject {
                     self.syncAppState()
                     if outputMode != .voiceNote {
                         PasteController.paste(text: text)
-                        if self.config.enableDictionaryCorrectionPrompts && self.config.enableScreenContext {
+                        if self.config.enableDictionaryCorrectionPrompts {
                             self.dictationCorrectionMonitor.start(
                                 originalText: text,
                                 appContext: storageContext,
