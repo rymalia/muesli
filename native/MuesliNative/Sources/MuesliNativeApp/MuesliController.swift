@@ -728,6 +728,11 @@ final class MuesliController: NSObject {
         syncAppState()
     }
 
+    private func refreshICloudBridgeDeviceState() {
+        appState.iCloudBridgeRemoteDeviceName = MuesliBridgeDeviceIdentity.remoteDeviceDisplayName
+        appState.iCloudBridgeRemoteDevicePlatform = MuesliBridgeDeviceIdentity.remoteDevicePlatform
+    }
+
     func syncAppState() {
         let rows = (try? dictationStore.recentDictations(
             limit: appState.dictationPageSize,
@@ -778,8 +783,7 @@ final class MuesliController: NSObject {
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
         appState.isGoogleCalendarVerified = googleCalAuth.isVerified
         appState.isGoogleCalendarAuthenticated = googleCalAuth.isAuthenticated
-        appState.iCloudBridgeRemoteDeviceName = MuesliBridgeDeviceIdentity.remoteDeviceDisplayName
-        appState.iCloudBridgeRemoteDevicePlatform = MuesliBridgeDeviceIdentity.remoteDevicePlatform
+        refreshICloudBridgeDeviceState()
         refreshICloudBridgeStateForConfig()
         // Keep appState in sync with persisted hidden event IDs
         let persisted = Set(config.hiddenCalendarEventIDs)
@@ -1298,6 +1302,7 @@ final class MuesliController: NSObject {
                     self.iCloudSyncTask = nil
                     self.appState.isICloudSyncInProgress = false
                     let summary = self.formatICloudSyncSummary(result)
+                    self.refreshICloudBridgeDeviceState()
                     let remoteDeviceName = MuesliBridgeDeviceIdentity.remoteDeviceDisplayName ?? "iPhone"
                     self.appState.iCloudSyncStatus = result.downloaded.total > 0
                         ? "Synced with \(remoteDeviceName)."
