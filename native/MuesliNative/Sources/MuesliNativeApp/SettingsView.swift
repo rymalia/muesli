@@ -232,9 +232,7 @@ struct SettingsView: View {
         ) {
             Button("Cancel", role: .cancel) {}
             Button("Enable") {
-                if controller.requestDictionaryCorrectionAccessibilityEnable() {
-                    controller.setDictionaryCorrectionPromptsEnabled(true)
-                }
+                controller.requestDictionaryCorrectionAccessibilityEnable()
             }
         } message: {
             Text("Dictionary suggestions need Accessibility to detect text edits after dictation.")
@@ -1509,6 +1507,7 @@ struct SettingsView: View {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        controller.reconcilePendingDictionaryCorrectionPromptsEnable()
         if refreshLaunchAtLogin {
             controller.refreshLaunchAtLoginState()
         }

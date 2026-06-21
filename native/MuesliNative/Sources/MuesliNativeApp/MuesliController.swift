@@ -183,6 +183,8 @@ private final class DictationLatencyLogWriter: @unchecked Sendable {
 final class MuesliController: NSObject {
     private static let maxDismissedDictionarySuggestionKeys = 200
     private static let maxDictionarySuggestions = 50
+    private static let pendingDictionaryCorrectionPromptsEnableKey = "settings.pendingDictionaryCorrectionPromptsEnable"
+    private static let pendingDictionaryCorrectionPromptsRequestedAtKey = "settings.pendingDictionaryCorrectionPromptsRequestedAt"
 
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
@@ -380,6 +382,7 @@ final class MuesliController: NSObject {
         CoreAudioSystemRecorder.cleanupStaleDevices()
 
         syncLaunchAtLoginConfigWithSystem()
+        reconcilePendingDictionaryCorrectionPromptsEnable()
 
         // Clean up leftover audio temp files from previous sessions.
         cleanupTemporaryDirectory(
@@ -2020,18 +2023,48 @@ final class MuesliController: NSObject {
 
     func setDictionaryCorrectionPromptsEnabled(_ enabled: Bool) {
         if !enabled {
+            clearPendingDictionaryCorrectionPromptsEnable()
             dictationCorrectionMonitor.cancel()
+            updateConfig { $0.enableDictionaryCorrectionPrompts = false }
+            return
         }
-        updateConfig { $0.enableDictionaryCorrectionPrompts = enabled }
+        guard AXIsProcessTrusted() else {
+            recordPendingDictionaryCorrectionPromptsEnable()
+            dictationCorrectionMonitor.cancel()
+            updateConfig { $0.enableDictionaryCorrectionPrompts = false }
+            return
+        }
+        clearPendingDictionaryCorrectionPromptsEnable()
+        updateConfig { $0.enableDictionaryCorrectionPrompts = true }
     }
 
     @discardableResult
     func requestDictionaryCorrectionAccessibilityEnable() -> Bool {
-        guard !AXIsProcessTrusted() else { return true }
+        guard !AXIsProcessTrusted() else {
+            setDictionaryCorrectionPromptsEnabled(true)
+            return true
+        }
+        recordPendingDictionaryCorrectionPromptsEnable()
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
-        // macOS may require an app restart before AX trust is visible here.
-        return true
+        return false
+    }
+
+    func reconcilePendingDictionaryCorrectionPromptsEnable() {
+        guard UserDefaults.standard.bool(forKey: Self.pendingDictionaryCorrectionPromptsEnableKey) else { return }
+        guard AXIsProcessTrusted() else { return }
+        clearPendingDictionaryCorrectionPromptsEnable()
+        updateConfig { $0.enableDictionaryCorrectionPrompts = true }
+    }
+
+    private func recordPendingDictionaryCorrectionPromptsEnable() {
+        UserDefaults.standard.set(true, forKey: Self.pendingDictionaryCorrectionPromptsEnableKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.pendingDictionaryCorrectionPromptsRequestedAtKey)
+    }
+
+    private func clearPendingDictionaryCorrectionPromptsEnable() {
+        UserDefaults.standard.removeObject(forKey: Self.pendingDictionaryCorrectionPromptsEnableKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingDictionaryCorrectionPromptsRequestedAtKey)
     }
 
     @discardableResult
