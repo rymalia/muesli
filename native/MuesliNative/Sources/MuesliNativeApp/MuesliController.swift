@@ -185,7 +185,7 @@ final class MuesliController: NSObject {
     private static let maxDictionarySuggestions = 50
     private static let pendingDictionaryCorrectionPromptsEnableKey = "settings.pendingDictionaryCorrectionPromptsEnable"
     private static let pendingDictionaryCorrectionPromptsRequestedAtKey = "settings.pendingDictionaryCorrectionPromptsRequestedAt"
-    private static let pendingDictionaryCorrectionPromptsEnableTimeout: TimeInterval = 15 * 60
+    private static let pendingDictionaryCorrectionPromptsEnableTimeout: TimeInterval = 3 * 60
 
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
@@ -2045,22 +2045,21 @@ final class MuesliController: NSObject {
             setDictionaryCorrectionPromptsEnabled(true)
             return true
         }
-        recordPendingDictionaryCorrectionPromptsEnable()
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+        recordPendingDictionaryCorrectionPromptsEnable()
         return false
     }
 
     func reconcilePendingDictionaryCorrectionPromptsEnable() {
         guard UserDefaults.standard.bool(forKey: Self.pendingDictionaryCorrectionPromptsEnableKey) else { return }
-        if AXIsProcessTrusted() {
-            clearPendingDictionaryCorrectionPromptsEnable()
-            updateConfig { $0.enableDictionaryCorrectionPrompts = true }
-            return
-        }
         if isPendingDictionaryCorrectionPromptsEnableExpired {
             clearPendingDictionaryCorrectionPromptsEnable()
+            return
         }
+        guard AXIsProcessTrusted() else { return }
+        clearPendingDictionaryCorrectionPromptsEnable()
+        updateConfig { $0.enableDictionaryCorrectionPrompts = true }
     }
 
     private func recordPendingDictionaryCorrectionPromptsEnable() {
