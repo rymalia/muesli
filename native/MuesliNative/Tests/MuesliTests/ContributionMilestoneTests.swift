@@ -31,7 +31,7 @@ struct ContributionMilestoneTests {
             intervalKind: .dictationWords,
             githubStarClicked: false,
             buyMeCoffeeClicked: false
-        ) == 12_000)
+        ) == 30_000)
         #expect(ContributionMilestonePolicy.resolvedNextMilestone(
             storedNextMilestone: nil,
             total: 63,
@@ -46,6 +46,31 @@ struct ContributionMilestoneTests {
             githubStarClicked: true,
             buyMeCoffeeClicked: true
         ) == nil)
+    }
+
+    @Test("stale stored milestones advance to the latest crossed boundary")
+    func staleStoredMilestonesAdvance() {
+        #expect(ContributionMilestonePolicy.resolvedNextMilestone(
+            storedNextMilestone: 31_000,
+            total: 31_500,
+            intervalKind: .dictationWords,
+            githubStarClicked: false,
+            buyMeCoffeeClicked: false
+        ) == 31_000)
+        #expect(ContributionMilestonePolicy.resolvedNextMilestone(
+            storedNextMilestone: 31_000,
+            total: 33_000,
+            intervalKind: .dictationWords,
+            githubStarClicked: false,
+            buyMeCoffeeClicked: false
+        ) == 33_000)
+        #expect(ContributionMilestonePolicy.resolvedNextMilestone(
+            storedNextMilestone: 25,
+            total: 63,
+            intervalKind: .meetings,
+            githubStarClicked: false,
+            buyMeCoffeeClicked: false
+        ) == 50)
     }
 
     @Test("prompt is eligible only after crossing stored milestone")

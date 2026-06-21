@@ -69,6 +69,11 @@ enum ContributionMilestonePolicy {
         return ((clampedTotal / interval) + 1) * interval
     }
 
+    private static func latestCrossedMilestone(at total: Int, interval: Int) -> Int {
+        let clampedTotal = max(total, 0)
+        return max(interval, (clampedTotal / interval) * interval)
+    }
+
     static func resolvedNextMilestone(
         storedNextMilestone: Int?,
         total: Int,
@@ -77,11 +82,22 @@ enum ContributionMilestonePolicy {
         buyMeCoffeeClicked: Bool
     ) -> Int? {
         guard !githubStarClicked || !buyMeCoffeeClicked else { return nil }
+        guard let storedNextMilestone else {
+            switch intervalKind {
+            case .dictationWords:
+                return nextMilestone(after: total)
+            case .meetings:
+                return nextMeetingMilestone(after: total)
+            }
+        }
+
         switch intervalKind {
         case .dictationWords:
-            return storedNextMilestone ?? nextMilestone(after: total)
+            guard total >= storedNextMilestone else { return storedNextMilestone }
+            return max(storedNextMilestone, latestCrossedMilestone(at: total, interval: dictationWordInterval))
         case .meetings:
-            return storedNextMilestone ?? nextMeetingMilestone(after: total)
+            guard total >= storedNextMilestone else { return storedNextMilestone }
+            return max(storedNextMilestone, latestCrossedMilestone(at: total, interval: meetingInterval))
         }
     }
 

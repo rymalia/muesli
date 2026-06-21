@@ -1005,12 +1005,14 @@ final class MuesliController: NSObject {
     }
 
     func openContributionMilestoneAction(_ action: ContributionMilestoneAction) {
+        guard let prompt = appState.contributionMilestonePrompt else { return }
         NSWorkspace.shared.open(action.url)
+        // CTA clicks intentionally dismiss for this launch; any remaining CTA can reappear next launch.
         contributionMilestonePromptDismissedThisLaunch = true
         TelemetryDeck.signal("contribution_prompt_action_clicked", parameters: [
             "action": action.rawValue,
-            "kind": appState.contributionMilestonePrompt?.kind.rawValue ?? "",
-            "count": appState.contributionMilestonePrompt.map { "\($0.count)" } ?? "",
+            "kind": prompt.kind.rawValue,
+            "count": "\(prompt.count)",
         ])
 
         updateConfig { config in
