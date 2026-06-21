@@ -195,7 +195,7 @@ struct DictationsView: View {
                     controller.openContributionMilestoneAction(.buyMeCoffee)
                 }
             }
-            Button("Not Now", role: .cancel) {
+            Button("Later", role: .cancel) {
                 controller.dismissContributionMilestonePrompt()
             }
         } message: {
