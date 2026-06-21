@@ -134,9 +134,6 @@ enum MuesliBridgeDeviceIdentity {
     }
 
     static func shouldRefresh(defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
-        guard defaults.string(forKey: remoteDeviceIDKey) != nil else {
-            return true
-        }
         guard let lastRefresh = defaults.object(forKey: lastRefreshKey) as? Date else {
             return true
         }
