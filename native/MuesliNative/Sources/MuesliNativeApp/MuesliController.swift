@@ -2053,13 +2053,14 @@ final class MuesliController: NSObject {
 
     func reconcilePendingDictionaryCorrectionPromptsEnable() {
         guard UserDefaults.standard.bool(forKey: Self.pendingDictionaryCorrectionPromptsEnableKey) else { return }
-        if isPendingDictionaryCorrectionPromptsEnableExpired {
+        if AXIsProcessTrusted() {
             clearPendingDictionaryCorrectionPromptsEnable()
+            updateConfig { $0.enableDictionaryCorrectionPrompts = true }
             return
         }
-        guard AXIsProcessTrusted() else { return }
-        clearPendingDictionaryCorrectionPromptsEnable()
-        updateConfig { $0.enableDictionaryCorrectionPrompts = true }
+        if isPendingDictionaryCorrectionPromptsEnableExpired {
+            clearPendingDictionaryCorrectionPromptsEnable()
+        }
     }
 
     private func recordPendingDictionaryCorrectionPromptsEnable() {
