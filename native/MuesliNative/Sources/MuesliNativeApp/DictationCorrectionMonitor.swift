@@ -25,7 +25,18 @@ struct DictionaryCorrectionDetector {
     private static let maxObservedTokensPerDictionaryWord = 2
     private static let maxAlignmentTokens = 512
     private static let maxAlignmentCellCount = 300_000
-    private static let spellChecker = NSSpellChecker()
+
+    private struct EnglishWordLookup: Sendable {
+        private let recognizedWords: Set<String>
+
+        init(recognizedWords: Set<String>) {
+            self.recognizedWords = Set(recognizedWords.map { $0.lowercased() })
+        }
+
+        func isRecognized(_ value: String) -> Bool {
+            recognizedWords.contains(value.lowercased())
+        }
+    }
 
     private struct CorrectionCandidate {
         let observed: String
@@ -35,14 +46,16 @@ struct DictionaryCorrectionDetector {
     static func suggestion(
         originalText: String,
         editedText: String,
-        appContext: String = ""
+        appContext: String = "",
+        recognizedEnglishWords: Set<String> = []
     ) -> DictionarySuggestion? {
         suggestions(
             originalText: originalText,
             baselineText: originalText,
             currentText: editedText,
             appContext: appContext,
-            maxSuggestions: 1
+            maxSuggestions: 1,
+            recognizedEnglishWords: recognizedEnglishWords
         ).first
     }
 
@@ -50,14 +63,16 @@ struct DictionaryCorrectionDetector {
         originalText: String,
         editedText: String,
         appContext: String = "",
-        maxSuggestions: Int = Int.max
+        maxSuggestions: Int = Int.max,
+        recognizedEnglishWords: Set<String> = []
     ) -> [DictionarySuggestion] {
         suggestions(
             originalText: originalText,
             baselineText: originalText,
             currentText: editedText,
             appContext: appContext,
-            maxSuggestions: maxSuggestions
+            maxSuggestions: maxSuggestions,
+            recognizedEnglishWords: recognizedEnglishWords
         )
     }
 
@@ -65,14 +80,16 @@ struct DictionaryCorrectionDetector {
         originalText: String,
         baselineText: String,
         currentText: String,
-        appContext: String = ""
+        appContext: String = "",
+        recognizedEnglishWords: Set<String> = []
     ) -> DictionarySuggestion? {
         suggestions(
             originalText: originalText,
             baselineText: baselineText,
             currentText: currentText,
             appContext: appContext,
-            maxSuggestions: 1
+            maxSuggestions: 1,
+            recognizedEnglishWords: recognizedEnglishWords
         ).first
     }
 
@@ -81,7 +98,8 @@ struct DictionaryCorrectionDetector {
         baselineText: String,
         currentText: String,
         appContext: String = "",
-        maxSuggestions: Int = Int.max
+        maxSuggestions: Int = Int.max,
+        recognizedEnglishWords: Set<String> = []
     ) -> [DictionarySuggestion] {
         guard isDetectionRequestValid(
             originalText: originalText,
@@ -90,6 +108,7 @@ struct DictionaryCorrectionDetector {
             maxSuggestions: maxSuggestions
         ) else { return [] }
 
+        let englishWordLookup = EnglishWordLookup(recognizedWords: recognizedEnglishWords)
         var results: [DictionarySuggestion] = []
         var seenKeys = Set<String>()
 
@@ -109,7 +128,8 @@ struct DictionaryCorrectionDetector {
             originalText: originalText,
             baselineText: baselineText,
             currentText: currentText,
-            maxCandidates: maxSuggestions
+            maxCandidates: maxSuggestions,
+            englishWordLookup: englishWordLookup
         ) {
             append(candidate)
         }
@@ -133,7 +153,8 @@ struct DictionaryCorrectionDetector {
         originalText: String,
         baselineText: String,
         currentText: String,
-        maxCandidates: Int
+        maxCandidates: Int,
+        englishWordLookup: EnglishWordLookup
     ) -> [CorrectionCandidate] {
         var candidates: [CorrectionCandidate] = []
 
@@ -145,14 +166,16 @@ struct DictionaryCorrectionDetector {
         append(fragmentCandidate(
             originalText: originalText,
             baselineText: baselineText,
-            currentText: currentText
+            currentText: currentText,
+            englishWordLookup: englishWordLookup
         ))
 
         if candidates.count < maxCandidates {
             for candidate in tokenAlignedCandidates(
                 originalText: originalText,
                 editedText: currentText,
-                maxCandidates: maxCandidates - candidates.count
+                maxCandidates: maxCandidates - candidates.count,
+                englishWordLookup: englishWordLookup
             ) {
                 append(candidate)
             }
@@ -164,7 +187,8 @@ struct DictionaryCorrectionDetector {
     private static func fragmentCandidate(
         originalText: String,
         baselineText: String,
-        currentText: String
+        currentText: String,
+        englishWordLookup: EnglishWordLookup
     ) -> CorrectionCandidate? {
         let diff = changedFragments(from: baselineText, to: currentText)
         guard let observed = normalizedCandidate(diff.removed),
@@ -177,7 +201,11 @@ struct DictionaryCorrectionDetector {
         guard originalText.range(of: observed, options: [.caseInsensitive, .diacriticInsensitive]) != nil else {
             return nil
         }
-        guard isLikelyDictionaryCorrection(observed: observed, replacement: replacement) else { return nil }
+        guard isLikelyDictionaryCorrection(
+            observed: observed,
+            replacement: replacement,
+            englishWordLookup: englishWordLookup
+        ) else { return nil }
 
         return CorrectionCandidate(
             observed: observed,
@@ -193,7 +221,8 @@ struct DictionaryCorrectionDetector {
     private static func tokenAlignedCandidates(
         originalText: String,
         editedText: String,
-        maxCandidates: Int
+        maxCandidates: Int,
+        englishWordLookup: EnglishWordLookup
     ) -> [CorrectionCandidate] {
         guard maxCandidates > 0 else { return [] }
         let originalTokens = wordTokens(in: originalText)
@@ -220,7 +249,8 @@ struct DictionaryCorrectionDetector {
             for candidate in candidatesFromTokenRun(
                 fromTokenRun: run,
                 originalText: originalText,
-                maxCandidates: maxCandidates - candidates.count
+                maxCandidates: maxCandidates - candidates.count,
+                englishWordLookup: englishWordLookup
             ) {
                 append(candidate)
             }
@@ -279,7 +309,8 @@ struct DictionaryCorrectionDetector {
     private static func candidatesFromTokenRun(
         fromTokenRun run: TokenChangeRun,
         originalText: String,
-        maxCandidates: Int
+        maxCandidates: Int,
+        englishWordLookup: EnglishWordLookup
     ) -> [CorrectionCandidate] {
         guard maxCandidates > 0 else { return [] }
         var results: [CorrectionCandidate] = []
@@ -299,7 +330,8 @@ struct DictionaryCorrectionDetector {
                 observedTokens: run.observedTokens,
                 observedIndex: observedIndex,
                 replacementToken: replacementToken,
-                originalText: originalText
+                originalText: originalText,
+                englishWordLookup: englishWordLookup
             ) {
                 results.append(bestCandidate)
                 observedIndex += observedLength
@@ -312,7 +344,8 @@ struct DictionaryCorrectionDetector {
         observedTokens: [WordToken],
         observedIndex: Int,
         replacementToken: WordToken,
-        originalText: String
+        originalText: String,
+        englishWordLookup: EnglishWordLookup
     ) -> (CorrectionCandidate, Int)? {
         var bestCandidate: CorrectionCandidate?
         var bestObservedLength = 0
@@ -327,7 +360,11 @@ struct DictionaryCorrectionDetector {
                   let replacementCandidate = normalizedCandidate(replacementToken.text),
                   isWordScopedSuggestion(observed: observedCandidate, replacement: replacementCandidate),
                   originalText.range(of: observedCandidate, options: [.caseInsensitive, .diacriticInsensitive]) != nil,
-                  isLikelyDictionaryCorrection(observed: observedCandidate, replacement: replacementCandidate)
+                  isLikelyDictionaryCorrection(
+                      observed: observedCandidate,
+                      replacement: replacementCandidate,
+                      englishWordLookup: englishWordLookup
+                  )
             else { continue }
 
             let similarity = CustomWordMatcher.jaroWinklerSimilarity(
@@ -576,7 +613,11 @@ struct DictionaryCorrectionDetector {
         return CustomWordMatcher.jaroWinklerSimilarity(compactObserved, compactReplacement) >= minimumCorrectionSimilarity
     }
 
-    private static func isLikelyDictionaryCorrection(observed: String, replacement: String) -> Bool {
+    private static func isLikelyDictionaryCorrection(
+        observed: String,
+        replacement: String,
+        englishWordLookup: EnglishWordLookup
+    ) -> Bool {
         guard observed != replacement else { return false }
         guard observed.count >= 2, replacement.count >= 2 else { return false }
 
@@ -605,14 +646,15 @@ struct DictionaryCorrectionDetector {
                 || isLikelySingleWordSplitCorrection(
                     replacement: replacement,
                     replacementTokens: replacementTokens,
-                    similarity: compactSimilarity
+                    similarity: compactSimilarity,
+                    englishWordLookup: englishWordLookup
                 )
                 || isLikelyStrongDictionaryCorrection(
-                observed: observed,
-                replacement: replacement,
-                observedTokens: observedTokens,
-                similarity: compactSimilarity
-            )
+                    observed: observed,
+                    replacement: replacement,
+                    observedTokens: observedTokens,
+                    similarity: compactSimilarity
+                )
         }
 
         if commonWords.contains(normalizedObserved) {
@@ -630,7 +672,11 @@ struct DictionaryCorrectionDetector {
             return hasFormattingDictionarySignal || replacement.contains(where: \.isUppercase)
         }
 
-        guard !isCommonWordTruncation(observed: normalizedObserved, replacement: normalizedReplacement) else {
+        guard !isCommonWordTruncation(
+            observed: normalizedObserved,
+            replacement: normalizedReplacement,
+            englishWordLookup: englishWordLookup
+        ) else {
             return false
         }
 
@@ -672,7 +718,8 @@ struct DictionaryCorrectionDetector {
     private static func isLikelySingleWordSplitCorrection(
         replacement: String,
         replacementTokens: [String],
-        similarity: Double
+        similarity: Double,
+        englishWordLookup: EnglishWordLookup
     ) -> Bool {
         guard replacementTokens.count == 1,
               !replacement.contains("-"),
@@ -683,7 +730,7 @@ struct DictionaryCorrectionDetector {
               similarity >= minimumCorrectionSimilarity
         else { return false }
         return replacement.contains(where: \.isUppercase)
-            || !isRecognizedEnglishWord(replacement.lowercased())
+            || !englishWordLookup.isRecognized(replacement.lowercased())
     }
 
     private static func isNumericShorthand(observed: String, replacement: String) -> Bool {
@@ -713,31 +760,21 @@ struct DictionaryCorrectionDetector {
         return replacementLetters == initials
     }
 
-    private static func isCommonWordTruncation(observed: String, replacement: String) -> Bool {
+    private static func isCommonWordTruncation(
+        observed: String,
+        replacement: String,
+        englishWordLookup: EnglishWordLookup
+    ) -> Bool {
         guard observed.split(whereSeparator: \.isWhitespace).count == 1,
               replacement.split(whereSeparator: \.isWhitespace).count == 1,
               observed.allSatisfy(\.isLowercase),
               replacement.allSatisfy(\.isLowercase),
               observed != replacement,
               (observed.hasPrefix(replacement) || replacement.hasPrefix(observed)),
-              isRecognizedEnglishWord(observed),
-              isRecognizedEnglishWord(replacement)
+              englishWordLookup.isRecognized(observed),
+              englishWordLookup.isRecognized(replacement)
         else { return false }
         return true
-    }
-
-    private static func isRecognizedEnglishWord(_ value: String) -> Bool {
-        spellCheckerLock.lock()
-        defer { spellCheckerLock.unlock() }
-        let range = spellChecker.checkSpelling(
-            of: value,
-            startingAt: 0,
-            language: "en",
-            wrap: false,
-            inSpellDocumentWithTag: 0,
-            wordCount: nil
-        )
-        return range.location == NSNotFound
     }
 
     private static func hasInternalCapital(_ value: String) -> Bool {
@@ -762,7 +799,6 @@ struct DictionaryCorrectionDetector {
         "what", "when", "where", "which", "who", "will", "with", "would", "you", "your",
     ]
 
-    private static let spellCheckerLock = NSLock()
 }
 
 struct DictationCorrectionSnapshotStabilizer {
@@ -803,6 +839,8 @@ final class DictationCorrectionMonitor {
     nonisolated private static let maxSuggestionsPerSession = 3
     nonisolated private static let maxAccessibilityNodes = 140
     nonisolated private static let maxCandidateCharacters = 2_000
+
+    private static var englishWordRecognitionCache: [String: Bool] = [:]
 
     private var task: Task<Void, Never>?
 
@@ -858,13 +896,15 @@ final class DictationCorrectionMonitor {
                     Self.log("poll=\(pollCount) stableSnapshots=\(stableSnapshots.count)")
                 }
                 for stableSnapshot in stableSnapshots {
+                    let recognizedEnglishWords = Self.recognizedEnglishWords(in: [originalText, stableSnapshot])
                     let suggestions = await Task.detached(priority: .utility) {
                         Self.suggestions(
                             originalText: originalText,
                             editedSnapshot: stableSnapshot,
                             appContext: appContext,
                             targetApp: targetApp,
-                            maxSuggestions: Self.maxSuggestionsPerSession
+                            maxSuggestions: Self.maxSuggestionsPerSession,
+                            recognizedEnglishWords: recognizedEnglishWords
                         )
                     }.value
                     if Task.isCancelled { return }
@@ -903,15 +943,57 @@ final class DictationCorrectionMonitor {
         editedSnapshot: String,
         appContext: String,
         targetApp: DictationCorrectionTargetApp?,
-        maxSuggestions: Int
+        maxSuggestions: Int,
+        recognizedEnglishWords: Set<String>
     ) -> [DictionarySuggestion] {
         let resolvedAppContext = appContext.isEmpty ? (targetApp?.appContext ?? "") : appContext
         return DictionaryCorrectionDetector.suggestions(
             originalText: originalText,
             editedText: editedSnapshot,
             appContext: resolvedAppContext,
-            maxSuggestions: maxSuggestions
+            maxSuggestions: maxSuggestions,
+            recognizedEnglishWords: recognizedEnglishWords
         )
+    }
+
+    private static func recognizedEnglishWords(in texts: [String]) -> Set<String> {
+        let candidates = englishWordCandidates(in: texts)
+        guard !candidates.isEmpty else { return [] }
+
+        var recognizedWords = Set<String>()
+        let spellChecker = NSSpellChecker.shared
+        for candidate in candidates {
+            let isRecognized: Bool
+            if let cached = englishWordRecognitionCache[candidate] {
+                isRecognized = cached
+            } else {
+                let range = spellChecker.checkSpelling(
+                    of: candidate,
+                    startingAt: 0,
+                    language: "en",
+                    wrap: false,
+                    inSpellDocumentWithTag: 0,
+                    wordCount: nil
+                )
+                isRecognized = range.location == NSNotFound
+                englishWordRecognitionCache[candidate] = isRecognized
+            }
+            if isRecognized {
+                recognizedWords.insert(candidate)
+            }
+        }
+        return recognizedWords
+    }
+
+    private static func englishWordCandidates(in texts: [String]) -> Set<String> {
+        var candidates = Set<String>()
+        for text in texts {
+            for token in text.lowercased().split(whereSeparator: { !$0.isLetter }) {
+                guard token.count >= 2 else { continue }
+                candidates.insert(String(token))
+            }
+        }
+        return candidates
     }
 
     nonisolated private static func log(_ message: String) {

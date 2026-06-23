@@ -373,7 +373,8 @@ struct DictionaryCorrectionDetectorTests {
         let suggestion = DictionaryCorrectionDetector.suggestion(
             originalText: "I usually use this prompt",
             baselineText: "I usually use this prompt",
-            currentText: "I usual use this prompt"
+            currentText: "I usual use this prompt",
+            recognizedEnglishWords: ["usually", "usual"]
         )
 
         #expect(suggestion == nil)
