@@ -17,6 +17,10 @@ final class DictionarySuggestionPromptController: NSObject {
         super.init()
     }
 
+    static func firesAutoDismissCallbackAfterFade(wasDismissPaused: Bool) -> Bool {
+        !wasDismissPaused
+    }
+
     var isShowing: Bool {
         panel != nil
     }
@@ -156,8 +160,18 @@ final class DictionarySuggestionPromptController: NSObject {
         dismissDeadline = Date().addingTimeInterval(duration)
         dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                self?.dismiss()
+                self?.autoDismissNow()
             }
+        }
+    }
+
+    private func autoDismissNow() {
+        guard !isDismissPaused else { return }
+        animateOut { [weak self] in
+            guard let self else { return }
+            let wasPaused = self.isDismissPaused
+            let shouldNotify = Self.firesAutoDismissCallbackAfterFade(wasDismissPaused: wasPaused)
+            self.dismiss(notify: shouldNotify)
         }
     }
 
@@ -191,7 +205,21 @@ final class DictionarySuggestionPromptController: NSObject {
     }
 
     @objc private func handleDismiss() {
-        dismiss()
+        animateOut { [weak self] in
+            self?.dismiss()
+        }
+    }
+
+    private func animateOut(completion: @escaping @MainActor @Sendable () -> Void) {
+        guard let panel else { completion(); return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            panel.animator().alphaValue = 0
+        }, completionHandler: {
+            Task { @MainActor in
+                completion()
+            }
+        })
     }
 
     private static func frame(for size: NSSize, anchorFrame: NSRect?) -> NSRect {
