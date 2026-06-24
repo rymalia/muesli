@@ -1128,11 +1128,7 @@ final class DictationCorrectionMonitor {
             snapshots.append(snapshot)
         }
 
-        var focusedProcessID: pid_t?
-        addSnapshot(from: systemFocusedTextSnapshot(
-            maxCharacters: maxCandidateCharacters,
-            processID: &focusedProcessID
-        ))
+        addSnapshot(from: systemFocusedTextSnapshot(maxCharacters: maxCandidateCharacters))
 
         if let targetApp {
             collectTextSnapshots(fromProcessID: targetApp.processID, add: addSnapshot(from:))
@@ -1229,8 +1225,7 @@ final class DictationCorrectionMonitor {
     }
 
     nonisolated private static func systemFocusedTextSnapshot(
-        maxCharacters: Int = 20_000,
-        processID focusedProcessID: inout pid_t?
+        maxCharacters: Int = 20_000
     ) -> String? {
         let system = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
@@ -1240,10 +1235,6 @@ final class DictationCorrectionMonitor {
         else { return nil }
 
         let element = focused as! AXUIElement
-        var pid: pid_t = 0
-        if AXUIElementGetPid(element, &pid) == .success {
-            focusedProcessID = pid
-        }
         return textSnapshot(from: element, maxCharacters: maxCharacters)
     }
 
