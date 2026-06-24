@@ -420,6 +420,16 @@ struct DictionaryCorrectionDetectorTests {
         #expect(suggestion == nil)
     }
 
+    @Test("does not suggest short same-endpoint numeric shorthand edits")
+    func skipsShortSameEndpointNumericShorthand() {
+        let suggestion = DictionaryCorrectionDetector.suggestion(
+            originalText: "Please review the token design note today",
+            editedText: "Please review the t3n design note today"
+        )
+
+        #expect(suggestion == nil)
+    }
+
     @Test("ignores edits outside the pasted dictation")
     func ignoresOutsideEdits() {
         let suggestion = DictionaryCorrectionDetector.suggestion(

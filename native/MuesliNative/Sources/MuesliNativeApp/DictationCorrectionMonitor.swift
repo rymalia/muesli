@@ -744,6 +744,7 @@ struct DictionaryCorrectionDetector {
         let replacementCharacters = Array(replacement.lowercased())
         guard observedLetters.count >= 4,
               replacementCharacters.count >= 3,
+              replacementCharacters.count < observedLetters.count / 2,
               let firstObserved = observedLetters.first,
               let lastObserved = observedLetters.last,
               replacementCharacters.first == firstObserved,

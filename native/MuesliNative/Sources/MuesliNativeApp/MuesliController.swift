@@ -22,6 +22,11 @@ private enum DictationOutputMode {
     }
 }
 
+enum DictionaryCorrectionPromptsToggleResult {
+    case updated
+    case needsAccessibilityPermission
+}
+
 private enum DictationAudioRouteTiming {
     static let stabilizationDelay: TimeInterval = 1.0
 }
@@ -2130,16 +2135,16 @@ final class MuesliController: NSObject {
     }
 
     @discardableResult
-    func setDictionaryCorrectionPromptsFromToggle(_ enabled: Bool) -> Bool {
+    func setDictionaryCorrectionPromptsFromToggle(_ enabled: Bool) -> DictionaryCorrectionPromptsToggleResult {
         guard enabled else {
             setDictionaryCorrectionPromptsEnabled(false)
-            return false
+            return .updated
         }
         guard AXIsProcessTrusted() else {
-            return true
+            return .needsAccessibilityPermission
         }
         setDictionaryCorrectionPromptsEnabled(true)
-        return false
+        return .updated
     }
 
     func setDictionaryCorrectionPromptsEnabled(_ enabled: Bool) {

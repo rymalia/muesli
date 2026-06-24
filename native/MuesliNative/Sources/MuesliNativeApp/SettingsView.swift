@@ -1480,7 +1480,7 @@ struct SettingsView: View {
     }
 
     private func handleDictionaryCorrectionPromptsToggle(_ enabled: Bool) {
-        if controller.setDictionaryCorrectionPromptsFromToggle(enabled) {
+        if controller.setDictionaryCorrectionPromptsFromToggle(enabled) == .needsAccessibilityPermission {
             isShowingDictionaryAccessibilityPrompt = true
         }
     }
@@ -1510,7 +1510,9 @@ struct SettingsView: View {
             controller.refreshLaunchAtLoginState()
         }
         if accessibilityGranted && pendingScreenContextEnable {
-            clearPendingScreenContextEnable()
+            if controller.requestScreenContextEnable() {
+                clearPendingScreenContextEnable()
+            }
         }
         if !accessibilityGranted && isPendingScreenContextGrantExpired {
             clearPendingScreenContextEnable()

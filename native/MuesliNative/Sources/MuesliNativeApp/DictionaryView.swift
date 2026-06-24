@@ -97,7 +97,7 @@ struct DictionaryView: View {
     }
 
     private func handleDictionaryCorrectionPromptsToggle(_ enabled: Bool) {
-        if controller.setDictionaryCorrectionPromptsFromToggle(enabled) {
+        if controller.setDictionaryCorrectionPromptsFromToggle(enabled) == .needsAccessibilityPermission {
             isShowingAccessibilityPrompt = true
         }
     }
