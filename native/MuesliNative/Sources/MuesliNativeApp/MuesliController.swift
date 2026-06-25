@@ -1838,7 +1838,7 @@ final class MuesliController: NSObject {
         let disabledIDs = Set(config.disabledCalendarIDs)
         let dayCount = UpcomingMeetingsWindow.resolve(dayCount: config.upcomingMeetingsDayCount).dayCount
         var ekEvents = calendarMonitor.upcomingEvents(daysAhead: dayCount, disabledCalendarIDs: disabledIDs)
-        var canConfirmMissingCalendarEvents = true
+        var canConfirmMissingCalendarEvents = !googleCalAuth.isAvailable
 
         if googleCalAuth.isAuthenticated {
             do {
@@ -1859,6 +1859,12 @@ final class MuesliController: NSObject {
                 canConfirmMissingCalendarEvents = false
                 fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)
             }
+        }
+
+        let currentDisabledIDs = Set(config.disabledCalendarIDs)
+        let currentDayCount = UpcomingMeetingsWindow.resolve(dayCount: config.upcomingMeetingsDayCount).dayCount
+        guard dayCount == currentDayCount, disabledIDs == currentDisabledIDs else {
+            return
         }
 
         appState.upcomingCalendarEvents = ekEvents
