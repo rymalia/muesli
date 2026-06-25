@@ -1855,6 +1855,8 @@ final class MuesliController: NSObject {
             } catch GoogleCalendarAuthError.refreshFailed(let message) {
                 canConfirmMissingCalendarEvents = false
                 fputs("[muesli-native] Google Calendar token refresh failed: \(message)\n", stderr)
+            } catch GoogleCalendarClientError.staleRequest {
+                return
             } catch {
                 canConfirmMissingCalendarEvents = false
                 fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)

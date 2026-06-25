@@ -45,11 +45,14 @@ struct GoogleCalendarSummary: Identifiable, Equatable {
 
 enum GoogleCalendarClientError: Error, LocalizedError {
     case requestFailed(String)
+    case staleRequest
 
     var errorDescription: String? {
         switch self {
         case .requestFailed(let message):
             return "Google Calendar request failed: \(message)"
+        case .staleRequest:
+            return "Google Calendar request was superseded"
         }
     }
 }
@@ -100,6 +103,7 @@ final class GoogleCalendarClient {
     /// False when the latest fetch returned cached or partial Google Calendar
     /// results because a list or event request failed.
     private(set) var lastUpcomingEventsFetchWasComplete = true
+    private var upcomingEventsFetchGeneration = 0
 
     /// Fetch upcoming events from every Google calendar the user can read,
     /// minus any in `disabledCalendarIDs`. Refreshes the calendar list on each
@@ -109,8 +113,14 @@ final class GoogleCalendarClient {
         daysAhead: Int = UpcomingMeetingsWindow.defaultDayCount,
         disabledCalendarIDs: Set<String> = []
     ) async throws -> [UnifiedCalendarEvent] {
+        upcomingEventsFetchGeneration += 1
+        let fetchGeneration = upcomingEventsFetchGeneration
         var completedAllFetches = true
-        defer { lastUpcomingEventsFetchWasComplete = completedAllFetches }
+        defer {
+            if fetchGeneration == upcomingEventsFetchGeneration {
+                lastUpcomingEventsFetchWasComplete = completedAllFetches
+            }
+        }
 
         let resolvedDayCount = UpcomingMeetingsWindow.resolve(dayCount: daysAhead).dayCount
         let now = Date()
@@ -127,8 +137,11 @@ final class GoogleCalendarClient {
         // Refresh the calendar list. If this fails, fall back to whatever we
         // last saw — better to return something than nothing.
         do {
-            cachedCalendarList = try await fetchCalendarList()
+            let calendarList = try await fetchCalendarList()
+            try ensureCurrentFetch(fetchGeneration)
+            cachedCalendarList = calendarList
         } catch {
+            try ensureCurrentFetch(fetchGeneration)
             if cachedCalendarList.isEmpty {
                 // First call ever and we can't list — try the primary calendar
                 // directly so users with read-only access at least see something.
@@ -150,6 +163,7 @@ final class GoogleCalendarClient {
         let keepIDs = Set(enabled.map(\.id))
         let calendarIDsToRemove = cachedEventsByCalendar.keys.filter { !keepIDs.contains($0) }
         for calID in calendarIDsToRemove {
+            try ensureCurrentFetch(fetchGeneration)
             cachedEventsByCalendar.removeValue(forKey: calID)
             cachedEventScopesByCalendar.removeValue(forKey: calID)
             syncTokens.removeValue(forKey: calID)
@@ -160,10 +174,13 @@ final class GoogleCalendarClient {
                 try await fetchEvents(
                     forCalendarID: calendar.id,
                     daysAhead: resolvedDayCount,
-                    windowScope: windowScope
+                    windowScope: windowScope,
+                    fetchGeneration: fetchGeneration
                 )
             } catch let authError as GoogleCalendarAuthError {
                 throw authError
+            } catch GoogleCalendarClientError.staleRequest {
+                throw GoogleCalendarClientError.staleRequest
             } catch {
                 fputs("[google-cal] events fetch failed for \(calendar.id), keeping cached events: \(error)\n", stderr)
                 failedCalendarIDs.insert(calendar.id)
@@ -192,6 +209,7 @@ final class GoogleCalendarClient {
         forCalendarID calendarID: String,
         daysAhead: Int,
         windowScope: EventWindowScope,
+        fetchGeneration: Int,
         isRetry: Bool = false
     ) async throws {
         var token = try await auth.validAccessToken()
@@ -237,11 +255,13 @@ final class GoogleCalendarClient {
                     throw GoogleCalendarClientError.requestFailed("events sync token expired during full re-fetch")
                 }
                 fputs("[google-cal] sync token expired for \(calendarID), performing full re-fetch\n", stderr)
+                try ensureCurrentFetch(fetchGeneration)
                 syncTokens.removeValue(forKey: calendarID)
                 return try await fetchEvents(
                     forCalendarID: calendarID,
                     daysAhead: daysAhead,
                     windowScope: windowScope,
+                    fetchGeneration: fetchGeneration,
                     isRetry: true
                 )
             }
@@ -281,6 +301,7 @@ final class GoogleCalendarClient {
                 pageToken = nextPage
             } else {
                 pageToken = nil
+                try ensureCurrentFetch(fetchGeneration)
                 if let newSyncToken = json["nextSyncToken"] as? String {
                     syncTokens[calendarID] = newSyncToken
                 }
@@ -288,6 +309,12 @@ final class GoogleCalendarClient {
                 cachedEventScopesByCalendar[calendarID] = windowScope
             }
         } while pageToken != nil
+    }
+
+    private func ensureCurrentFetch(_ fetchGeneration: Int) throws {
+        guard fetchGeneration == upcomingEventsFetchGeneration else {
+            throw GoogleCalendarClientError.staleRequest
+        }
     }
 
     /// Enumerate every Google calendar the authenticated user can read.
