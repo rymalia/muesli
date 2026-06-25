@@ -1489,7 +1489,6 @@ final class MuesliController: NSObject {
         guard config.upcomingMeetingsDayCount != resolvedDayCount else { return }
 
         updateConfig { $0.upcomingMeetingsDayCount = resolvedDayCount }
-        googleCalClient.resetSync()
         Task {
             await refreshUpcomingCalendarEvents()
             checkUpcomingCalendarNotifications()
