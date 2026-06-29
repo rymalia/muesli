@@ -5107,9 +5107,10 @@ final class MuesliController: NSObject {
     }
 
     /// For a resumed meeting, concatenates the prior transcript with the newly
-    /// recorded one and regenerates the summary over the combined text. Returns the
-    /// stop result unchanged when this meeting is not a resume. Does not clear the
-    /// pending-transcript marker — that happens on successful persist or failure restore.
+    /// recorded one and regenerates the summary when new transcript content exists.
+    /// Returns the stop result unchanged when this meeting is not a resume. Does not
+    /// clear the pending-transcript marker — that happens on successful persist or
+    /// failure restore.
     private func mergedResumeResult(
         for result: MeetingSessionResult,
         meetingID: Int64?
@@ -5123,6 +5124,20 @@ final class MuesliController: NSObject {
             prior: prior,
             new: result.rawTranscript
         )
+        let originalMeeting = meeting(id: meetingID)
+        let originalStart = originalMeeting
+            .flatMap { ISO8601DateFormatter().date(from: $0.startTime) }
+        let accumulatedDuration = (originalMeeting?.durationSeconds ?? 0) + result.durationSeconds
+
+        guard MeetingResumePolicy.hasNewTranscriptContent(prior: prior, new: result.rawTranscript) else {
+            return result.overriding(
+                startTime: originalStart,
+                durationSeconds: accumulatedDuration,
+                rawTranscript: combined,
+                formattedNotes: originalMeeting?.formattedNotes ?? result.formattedNotes
+            )
+        }
+
         let regeneratedNotes: String
         do {
             regeneratedNotes = try await MeetingSummaryClient.summarize(
@@ -5143,10 +5158,6 @@ final class MuesliController: NSObject {
                 manualNotes: manualNotes
             )
         }
-        let originalMeeting = meeting(id: meetingID)
-        let originalStart = originalMeeting
-            .flatMap { ISO8601DateFormatter().date(from: $0.startTime) }
-        let accumulatedDuration = (originalMeeting?.durationSeconds ?? 0) + result.durationSeconds
         return result.overriding(
             startTime: originalStart,
             durationSeconds: accumulatedDuration,

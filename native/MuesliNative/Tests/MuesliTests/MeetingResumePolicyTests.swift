@@ -37,6 +37,14 @@ struct MeetingResumePolicyTests {
         #expect(MeetingResumePolicy.combinedResumeTranscript(prior: "   \n", new: "new segment") == "new segment")
     }
 
+    @Test("resume summary regeneration is skipped when transcript is unchanged")
+    func hasNewTranscriptContentOnlyWhenResumeAddsText() {
+        #expect(!MeetingResumePolicy.hasNewTranscriptContent(prior: "only half", new: "   \n "))
+        #expect(!MeetingResumePolicy.hasNewTranscriptContent(prior: "", new: ""))
+        #expect(MeetingResumePolicy.hasNewTranscriptContent(prior: "first half", new: "second half"))
+        #expect(MeetingResumePolicy.hasNewTranscriptContent(prior: "", new: "new segment"))
+    }
+
     private func makeResult(start: Date, end: Date) -> MeetingSessionResult {
         MeetingSessionResult(
             title: "M",

@@ -27,4 +27,8 @@ enum MeetingResumePolicy {
         guard !trimmedPrior.isEmpty else { return new }
         return prior + resumeSeparator + new
     }
+
+    static func hasNewTranscriptContent(prior: String, new: String) -> Bool {
+        combinedResumeTranscript(prior: prior, new: new) != prior
+    }
 }
