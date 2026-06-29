@@ -1858,6 +1858,7 @@ final class MuesliController: NSObject {
         let disabledIDs = Set(config.disabledCalendarIDs)
         let dayCount = UpcomingMeetingsWindow.resolve(dayCount: config.upcomingMeetingsDayCount).dayCount
         var ekEvents = calendarMonitor.upcomingEvents(daysAhead: dayCount, disabledCalendarIDs: disabledIDs)
+        var observedEventIDs = Set(ekEvents.map(\.id))
         var canConfirmMissingGoogleEvents = false
 
         if googleCalAuth.isAuthenticated {
@@ -1867,6 +1868,7 @@ final class MuesliController: NSObject {
                     disabledCalendarIDs: disabledIDs
                 )
                 canConfirmMissingGoogleEvents = googleCalClient.lastUpcomingEventsFetchWasComplete
+                observedEventIDs.formUnion(googleEvents.map(\.id))
                 ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleEvents)
             } catch GoogleCalendarAuthError.notAuthenticated {
                 invalidateGoogleCalendarAuth()
@@ -1889,13 +1891,13 @@ final class MuesliController: NSObject {
         appState.upcomingCalendarEvents = ekEvents
 
         // Prune hidden IDs only when the widest supported window still cannot see the event.
-        let currentEventIDs = Set(ekEvents.map(\.id))
+        observedEventIDs.formUnion(ekEvents.map(\.id))
         let sourceHints = config.hiddenCalendarEventSourceHints
         let canConfirmMissingEventKitEvents = calendarMonitor.canConfirmMissingEvents
         let canPruneHiddenEvents = disabledIDs.isEmpty
         let staleIDs = UpcomingMeetingsWindow.staleHiddenEventIDs(
             hiddenIDs: appState.hiddenCalendarEventIDs,
-            visibleEventIDs: currentEventIDs,
+            visibleEventIDs: observedEventIDs,
             dayCount: dayCount,
             canConfirmMissingEvents: canPruneHiddenEvents,
             canConfirmMissingEventID: { eventID in
