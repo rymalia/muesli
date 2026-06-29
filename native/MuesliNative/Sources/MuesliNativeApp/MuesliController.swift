@@ -4037,13 +4037,20 @@ final class MuesliController: NSObject {
             return
         }
 
-        // Capture the prior transcript now; merged with the new recording at stop.
-        pendingResumePriorTranscript[meetingID] = (try? dictationStore.meetingRawTranscript(id: meetingID)) ?? meeting.rawTranscript
+        let priorTranscript: String
+        do {
+            priorTranscript = try dictationStore.prepareMeetingForResume(id: meetingID)
+            scheduleICloudSyncAfterLocalChange()
+        } catch {
+            fputs("[muesli-native] failed to prepare meeting resume \(meetingID): \(error)\n", stderr)
+            presentErrorAlert(title: "Resume failed", message: error.localizedDescription)
+            return
+        }
+        pendingResumePriorTranscript[meetingID] = priorTranscript
 
         // REUSE the existing row — do NOT call createLiveMeeting.
         activeMeetingID = meetingID
         activeMeetingAudioWarning = nil
-        updateMeetingStatusAndScheduleSync(id: meetingID, status: .recording)
         syncAppState()
 
         armMeetingAutoStop(source: recentMeetingAutoStopSource())
@@ -4738,9 +4745,21 @@ final class MuesliController: NSObject {
     /// Returns true when it handled the meeting.
     @discardableResult
     private func restoreResumedMeetingIfNeeded(id: Int64) -> Bool {
-        guard pendingResumePriorTranscript[id] != nil else { return false }
+        let hadPendingResume = pendingResumePriorTranscript[id] != nil
+        do {
+            let restored = try dictationStore.restoreResumedMeetingIfNeeded(id: id)
+            guard restored || hadPendingResume else { return false }
+            if restored {
+                scheduleICloudSyncAfterLocalChange()
+            } else {
+                updateMeetingStatusAndScheduleSync(id: id, status: .completed)
+            }
+        } catch {
+            fputs("[muesli-native] failed to restore resumed meeting \(id): \(error)\n", stderr)
+            guard hadPendingResume else { return false }
+            updateMeetingStatusAndScheduleSync(id: id, status: .completed)
+        }
         pendingResumePriorTranscript[id] = nil
-        updateMeetingStatusAndScheduleSync(id: id, status: .completed)
         if activeMeetingID == id {
             activeMeetingID = nil
         }
@@ -5000,13 +5019,16 @@ final class MuesliController: NSObject {
 
         if let existingMeetingID {
             let persistedTitle = completedLiveMeetingTitle(for: result, existingMeetingID: existingMeetingID)
+            let durationOverride = pendingResumePriorTranscript[existingMeetingID] == nil
+                ? nil
+                : result.durationSeconds
             try dictationStore.completeLiveMeeting(
                 id: existingMeetingID,
                 title: persistedTitle,
                 calendarEventID: result.calendarEventID,
                 startTime: result.startTime,
                 endTime: result.endTime,
-                durationSeconds: result.durationSeconds,
+                durationSeconds: durationOverride,
                 rawTranscript: result.rawTranscript,
                 formattedNotes: result.formattedNotes,
                 micAudioPath: nil,

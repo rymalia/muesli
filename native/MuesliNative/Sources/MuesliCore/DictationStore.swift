@@ -125,6 +125,16 @@ public final class DictationStore {
         );
         CREATE INDEX IF NOT EXISTS idx_meeting_transcript_checkpoints_meeting
             ON meeting_transcript_checkpoints(meeting_id, start_seconds, id);
+
+        CREATE TABLE IF NOT EXISTS meeting_resume_snapshots (
+            meeting_id INTEGER PRIMARY KEY REFERENCES meetings(id) ON DELETE CASCADE,
+            raw_transcript TEXT NOT NULL DEFAULT '',
+            formatted_notes TEXT,
+            duration_seconds REAL NOT NULL DEFAULT 0,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
         """
         try exec(createSQL, db: db)
 
@@ -785,6 +795,7 @@ public final class DictationStore {
     public func deleteMeeting(id: Int64) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        try deleteResumeSnapshot(meetingID: id, db: db)
         try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
         let sql = """
         UPDATE meetings
@@ -970,6 +981,7 @@ public final class DictationStore {
             throw DictationStoreError.meetingNotFound(id: id)
         }
         try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
+        try deleteResumeSnapshot(meetingID: id, db: db)
     }
 
     /// Returns the stored raw transcript for a meeting, or `nil` if the meeting does not exist.
@@ -993,6 +1005,29 @@ public final class DictationStore {
             return nil
         }
         return stringColumn(statement, index: 0)
+    }
+
+    /// Atomically records the prior completed state and reopens the same row for resume recording.
+    /// Returns the transcript snapshot to use for in-memory merge on a normal stop.
+    public func prepareMeetingForResume(id: Int64) throws -> String {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        guard sqlite3_exec(db, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        do {
+            let snapshot = try resumeSnapshotSource(meetingID: id, db: db)
+            try upsertResumeSnapshot(meetingID: id, snapshot: snapshot, db: db)
+            try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
+            try updateMeetingStatus(id: id, status: .recording, db: db)
+            guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            return snapshot.rawTranscript
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
     }
 
     public func appendLiveTranscriptCheckpoints(meetingID: Int64, entries: [LiveTranscriptCheckpointEntry]) throws {
@@ -1060,6 +1095,9 @@ public final class DictationStore {
     public func recoverLiveMeetingFromTranscriptCheckpoints(id: Int64) throws -> Bool {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        if let snapshot = try resumeSnapshot(meetingID: id, db: db) {
+            return try recoverResumedMeeting(id: id, snapshot: snapshot, db: db)
+        }
         guard let transcript = try liveTranscriptCheckpointText(meetingID: id, db: db) else {
             return false
         }
@@ -1126,6 +1164,19 @@ public final class DictationStore {
     public func updateMeetingStatus(id: Int64, status: MeetingStatus) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        try updateMeetingStatus(id: id, status: status, db: db)
+    }
+
+    @discardableResult
+    public func restoreResumedMeetingIfNeeded(id: Int64) throws -> Bool {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        guard let snapshot = try resumeSnapshot(meetingID: id, db: db) else { return false }
+        try restoreResumedMeeting(id: id, snapshot: snapshot, db: db)
+        return true
+    }
+
+    private func updateMeetingStatus(id: Int64, status: MeetingStatus, db: OpaquePointer?) throws {
         let wordCount = try manualNoteWordCountIfNeeded(for: status, id: id, db: db)
         let sql = wordCount == nil
             ? "UPDATE meetings SET meeting_status = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?"
@@ -1214,6 +1265,7 @@ public final class DictationStore {
             throw DictationStoreError.meetingNotFound(id: id)
         }
         try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
+        try deleteResumeSnapshot(meetingID: id, db: db)
     }
 
     private func manualNoteWordCountIfNeeded(for status: MeetingStatus, id: Int64, db: OpaquePointer?) throws -> Int? {
@@ -1301,6 +1353,214 @@ public final class DictationStore {
             return nil
         }
         return ISO8601DateFormatter().string(from: startTime.addingTimeInterval(durationSeconds))
+    }
+
+    private struct ResumeSnapshot {
+        var rawTranscript: String
+        var formattedNotes: String
+        var durationSeconds: Double
+        var startTime: String
+        var endTime: String?
+    }
+
+    private func resumeSnapshotSource(meetingID: Int64, db: OpaquePointer?) throws -> ResumeSnapshot {
+        let sql = """
+        SELECT raw_transcript, formatted_notes, COALESCE(duration_seconds, 0), start_time, end_time
+        FROM meetings
+        WHERE id = ? AND deleted_at IS NULL AND meeting_status = ?
+        LIMIT 1
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+        sqlite3_bind_text(statement, 2, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw DictationStoreError.meetingNotFound(id: meetingID)
+        }
+        return ResumeSnapshot(
+            rawTranscript: stringColumn(statement, index: 0),
+            formattedNotes: stringColumn(statement, index: 1),
+            durationSeconds: max(sqlite3_column_double(statement, 2), 0),
+            startTime: stringColumn(statement, index: 3),
+            endTime: optionalStringColumn(statement, index: 4)
+        )
+    }
+
+    private func upsertResumeSnapshot(meetingID: Int64, snapshot: ResumeSnapshot, db: OpaquePointer?) throws {
+        let sql = """
+        INSERT INTO meeting_resume_snapshots
+            (meeting_id, raw_transcript, formatted_notes, duration_seconds, start_time, end_time, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(meeting_id) DO UPDATE SET
+            raw_transcript = excluded.raw_transcript,
+            formatted_notes = excluded.formatted_notes,
+            duration_seconds = excluded.duration_seconds,
+            start_time = excluded.start_time,
+            end_time = excluded.end_time,
+            created_at = excluded.created_at
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+        sqlite3_bind_text(statement, 2, (snapshot.rawTranscript as NSString).utf8String, -1, nil)
+        bindOptionalText(snapshot.formattedNotes, at: 3, statement: statement)
+        sqlite3_bind_double(statement, 4, snapshot.durationSeconds)
+        sqlite3_bind_text(statement, 5, (snapshot.startTime as NSString).utf8String, -1, nil)
+        bindOptionalText(snapshot.endTime, at: 6, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+    }
+
+    private func resumeSnapshot(meetingID: Int64, db: OpaquePointer?) throws -> ResumeSnapshot? {
+        let sql = """
+        SELECT raw_transcript, formatted_notes, duration_seconds, start_time, end_time
+        FROM meeting_resume_snapshots
+        WHERE meeting_id = ?
+        LIMIT 1
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return ResumeSnapshot(
+            rawTranscript: stringColumn(statement, index: 0),
+            formattedNotes: stringColumn(statement, index: 1),
+            durationSeconds: max(sqlite3_column_double(statement, 2), 0),
+            startTime: stringColumn(statement, index: 3),
+            endTime: optionalStringColumn(statement, index: 4)
+        )
+    }
+
+    @discardableResult
+    private func recoverResumedMeeting(id: Int64, snapshot: ResumeSnapshot, db: OpaquePointer?) throws -> Bool {
+        guard let checkpointTranscript = try liveTranscriptCheckpointText(meetingID: id, db: db) else {
+            try restoreResumedMeeting(id: id, snapshot: snapshot, db: db)
+            return true
+        }
+
+        let combined = combinedResumeRecoveryTranscript(prior: snapshot.rawTranscript, new: checkpointTranscript)
+        let manualNotes = try manualNotesForMeeting(id: id, db: db)
+        let resumedDurationSeconds = try liveTranscriptCheckpointDuration(meetingID: id, db: db)
+        let durationSeconds = snapshot.durationSeconds + resumedDurationSeconds
+        let endTime = snapshotEndTime(
+            startTimeString: snapshot.startTime,
+            fallbackEndTime: snapshot.endTime,
+            durationSeconds: durationSeconds
+        )
+        let formattedNotes = resumedRecoveryNotes(priorNotes: snapshot.formattedNotes, combinedTranscript: combined)
+        let wordCount = Self.countWords(in: combined) + Self.countWords(in: manualNotes)
+        let sql = """
+        UPDATE meetings
+        SET start_time = ?, end_time = ?, duration_seconds = ?, raw_transcript = ?, formatted_notes = ?, meeting_status = ?, word_count = ?, updated_at = ?, sync_dirty = 1
+        WHERE id = ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (snapshot.startTime as NSString).utf8String, -1, nil)
+        bindOptionalText(endTime, at: 2, statement: statement)
+        sqlite3_bind_double(statement, 3, durationSeconds)
+        sqlite3_bind_text(statement, 4, (combined as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 5, (formattedNotes as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 6, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
+        sqlite3_bind_int(statement, 7, Int32(wordCount))
+        sqlite3_bind_double(statement, 8, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 9, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
+        try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
+        try deleteResumeSnapshot(meetingID: id, db: db)
+        return true
+    }
+
+    private func restoreResumedMeeting(id: Int64, snapshot: ResumeSnapshot, db: OpaquePointer?) throws {
+        let manualNotes = try manualNotesForMeeting(id: id, db: db)
+        let wordCount = Self.countWords(in: snapshot.rawTranscript) + Self.countWords(in: manualNotes)
+        let sql = """
+        UPDATE meetings
+        SET start_time = ?, end_time = ?, duration_seconds = ?, raw_transcript = ?, formatted_notes = ?, meeting_status = ?, word_count = ?, updated_at = ?, sync_dirty = 1
+        WHERE id = ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (snapshot.startTime as NSString).utf8String, -1, nil)
+        bindOptionalText(snapshot.endTime, at: 2, statement: statement)
+        sqlite3_bind_double(statement, 3, snapshot.durationSeconds)
+        sqlite3_bind_text(statement, 4, (snapshot.rawTranscript as NSString).utf8String, -1, nil)
+        bindOptionalText(snapshot.formattedNotes, at: 5, statement: statement)
+        sqlite3_bind_text(statement, 6, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
+        sqlite3_bind_int(statement, 7, Int32(wordCount))
+        sqlite3_bind_double(statement, 8, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 9, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
+        try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
+        try deleteResumeSnapshot(meetingID: id, db: db)
+    }
+
+    private func combinedResumeRecoveryTranscript(prior: String, new: String) -> String {
+        let trimmedPrior = prior.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNew = new.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNew.isEmpty else { return prior }
+        guard !trimmedPrior.isEmpty else { return new }
+        return prior + "\n\n— Resumed —\n\n" + new
+    }
+
+    private func resumedRecoveryNotes(priorNotes: String, combinedTranscript: String) -> String {
+        let recoveryNotes = """
+        ## Raw Transcript
+
+        Recovered from live transcript checkpoints after a resumed meeting did not finalize normally. This fallback may be incomplete and may not include final diarization or reconciliation.
+
+        \(combinedTranscript)
+        """
+        let trimmedPriorNotes = priorNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPriorNotes.isEmpty else { return recoveryNotes }
+        return trimmedPriorNotes + "\n\n" + recoveryNotes
+    }
+
+    private func snapshotEndTime(startTimeString: String, fallbackEndTime: String?, durationSeconds: Double) -> String? {
+        guard durationSeconds > 0,
+              let startTime = ISO8601DateFormatter().date(from: startTimeString) else {
+            return fallbackEndTime
+        }
+        return ISO8601DateFormatter().string(from: startTime.addingTimeInterval(durationSeconds))
+    }
+
+    private func deleteResumeSnapshot(meetingID: Int64, db: OpaquePointer?) throws {
+        let sql = "DELETE FROM meeting_resume_snapshots WHERE meeting_id = ?"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
     }
 
     private func deleteLiveTranscriptCheckpoints(meetingID: Int64, db: OpaquePointer?) throws {
