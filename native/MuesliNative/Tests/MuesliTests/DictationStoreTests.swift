@@ -231,6 +231,49 @@ struct DictationStoreTests {
         #expect(try store.meetingRawTranscript(id: 999_999) == nil)
     }
 
+    @Test("meetingRawTranscript returns nil for a deleted meeting")
+    func meetingRawTranscriptReturnsNilForDeletedMeeting() throws {
+        let store = try makeStore()
+        let id = try store.createLiveMeeting(
+            title: "Deleted",
+            calendarEventID: nil,
+            startTime: Date()
+        )
+        try store.updateMeetingTranscript(id: id, rawTranscript: "Should be hidden")
+        try store.deleteMeeting(id: id)
+
+        #expect(try store.meetingRawTranscript(id: id) == nil)
+    }
+
+    @Test("completeLiveMeeting can persist explicit recorded duration")
+    func completeLiveMeetingPersistsExplicitRecordedDuration() throws {
+        let store = try makeStore()
+        let originalStart = Date(timeIntervalSince1970: 1_000_000)
+        let resumedEnd = originalStart.addingTimeInterval(21 * 24 * 60 * 60)
+        let id = try store.createLiveMeeting(
+            title: "Long-running artifact",
+            calendarEventID: nil,
+            startTime: originalStart
+        )
+
+        try store.completeLiveMeeting(
+            id: id,
+            title: "Long-running artifact",
+            calendarEventID: nil,
+            startTime: originalStart,
+            endTime: resumedEnd,
+            durationSeconds: 210,
+            rawTranscript: "old\nnew",
+            formattedNotes: "notes",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let meeting = try #require(try store.meeting(id: id))
+        #expect(meeting.startTime == ISO8601DateFormatter().string(from: originalStart))
+        #expect(meeting.durationSeconds == 210)
+    }
+
     @Test("synced iOS dictation preserves source and is clean")
     func syncedIOSDictationPreservesSource() throws {
         let store = try makeStore()

@@ -4017,20 +4017,9 @@ final class MuesliController: NSObject {
         startForegroundMeetingRecording(title: "Meeting")
     }
 
-    /// The moment a meeting finished recording (`start_time + duration_seconds`),
-    /// used to gate the resume window. Returns nil if the stored start time can't be parsed.
-    static func meetingEndDate(startTime: String, durationSeconds: Double) -> Date? {
-        guard let start = ISO8601DateFormatter().date(from: startTime) else { return nil }
-        return start.addingTimeInterval(durationSeconds)
-    }
-
     /// Whether a finished meeting can be resumed right now (used to gate the UI control too).
     func canResumeFinishedMeeting(_ meeting: MeetingRecord) -> Bool {
-        guard let endedAt = Self.meetingEndDate(
-            startTime: meeting.startTime,
-            durationSeconds: meeting.durationSeconds
-        ) else { return false }
-        return MeetingResumePolicy.canResume(status: meeting.status, endedAt: endedAt)
+        MeetingResumePolicy.canResume(status: meeting.status)
     }
 
     /// Reopens a finished meeting and appends more recording onto the *same* row
@@ -4701,6 +4690,11 @@ final class MuesliController: NSObject {
     }
 
     private func resolveLiveMeetingAfterDiscard(id: Int64, resolution: MeetingDiscardResolution) {
+        if restoreResumedMeetingIfNeeded(id: id) {
+            finishDiscardMeetingRecording()
+            return
+        }
+
         switch resolution {
         case .keepManualNotes:
             keepManualNotesAfterDiscard(id: id)
@@ -5012,6 +5006,7 @@ final class MuesliController: NSObject {
                 calendarEventID: result.calendarEventID,
                 startTime: result.startTime,
                 endTime: result.endTime,
+                durationSeconds: result.durationSeconds,
                 rawTranscript: result.rawTranscript,
                 formattedNotes: result.formattedNotes,
                 micAudioPath: nil,
@@ -5098,8 +5093,7 @@ final class MuesliController: NSObject {
         meetingID: Int64?
     ) async -> MeetingSessionResult {
         guard let meetingID,
-              let prior = pendingResumePriorTranscript[meetingID],
-              !prior.isEmpty else {
+              let prior = pendingResumePriorTranscript[meetingID] else {
             return result
         }
         let manualNotes = manualNotesForLiveMeeting(id: meetingID)
@@ -5127,13 +5121,13 @@ final class MuesliController: NSObject {
                 manualNotes: manualNotes
             )
         }
-        // Preserve the original meeting start so resuming doesn't reset the meeting's
-        // date/duration to the resumed session. The row still holds the original start
-        // at this point (resume only flips status to .recording).
-        let originalStart = meeting(id: meetingID)
+        let originalMeeting = meeting(id: meetingID)
+        let originalStart = originalMeeting
             .flatMap { ISO8601DateFormatter().date(from: $0.startTime) }
+        let accumulatedDuration = (originalMeeting?.durationSeconds ?? 0) + result.durationSeconds
         return result.overriding(
             startTime: originalStart,
+            durationSeconds: accumulatedDuration,
             rawTranscript: combined,
             formattedNotes: regeneratedNotes
         )

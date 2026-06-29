@@ -746,11 +746,17 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// The resume control only makes sense on a finished meeting within the window
-    /// and when no other recording is active.
+    /// The resume control only makes sense on a finished meeting when no other
+    /// recording/editing workflow is active.
     @ViewBuilder
     private func resumeChooserIfAvailable(for meeting: MeetingRecord) -> some View {
-        if controller.canResumeFinishedMeeting(meeting) && !appState.isMeetingRecording {
+        if controller.canResumeFinishedMeeting(meeting),
+           !appState.isMeetingRecording,
+           !appState.isMeetingStarting,
+           !isEditingNotes,
+           !isEditingTranscript,
+           !isSummarizing,
+           !isRetranscribing {
             resumeFollowUpChooser(for: meeting)
         }
     }
@@ -968,9 +974,9 @@ struct MeetingDetailView: View {
         .help(isPaused ? "Resume recording" : "Pause recording")
     }
 
-    /// Chooser shown on a finished meeting (within the resume window, no active
-    /// recording): "Resume recording" appends to this meeting; "Start a follow-up"
-    /// is scaffolded for a later PR.
+    /// Chooser shown on a finished meeting when no recording is active: "Resume
+    /// recording" appends to this meeting; "Start a follow-up" is scaffolded for
+    /// a later PR.
     @ViewBuilder
     private func resumeFollowUpChooser(for meeting: MeetingRecord) -> some View {
         Menu {

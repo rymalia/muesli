@@ -977,7 +977,12 @@ public final class DictationStore {
     public func meetingRawTranscript(id: Int64) throws -> String? {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        let sql = "SELECT raw_transcript FROM meetings WHERE id = ? LIMIT 1"
+        let sql = """
+        SELECT raw_transcript
+        FROM meetings
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1
+        """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
@@ -1153,6 +1158,7 @@ public final class DictationStore {
         calendarEventID: String?,
         startTime: Date,
         endTime: Date,
+        durationSeconds explicitDurationSeconds: Double? = nil,
         rawTranscript: String,
         formattedNotes: String,
         micAudioPath: String?,
@@ -1179,7 +1185,7 @@ public final class DictationStore {
         let formatter = ISO8601DateFormatter()
         let startString = formatter.string(from: startTime)
         let endString = formatter.string(from: endTime)
-        let durationSeconds = max(endTime.timeIntervalSince(startTime), 0)
+        let durationSeconds = max(explicitDurationSeconds ?? endTime.timeIntervalSince(startTime), 0)
         let manualNotes = try manualNotesForMeeting(id: id, db: db)
         let wordCount = Self.countWords(in: rawTranscript) + Self.countWords(in: manualNotes)
 

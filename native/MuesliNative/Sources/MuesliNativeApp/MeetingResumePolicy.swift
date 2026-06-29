@@ -4,28 +4,13 @@ import MuesliCore
 /// Decides whether a finished meeting may be resumed (reopened to append more
 /// recording onto the same meeting row).
 ///
-/// Resume is only offered for a short window after a meeting ends so it stays an
-/// "accidental stop / same sitting" recovery, not a way to retroactively merge a
-/// days-old or recurring meeting (see `Context/prd-120-resume-followup.md`).
+/// Resume is intentionally age-independent: users may continue transcribing into
+/// an older meeting artifact when that is the right product-level grouping.
 enum MeetingResumePolicy {
-    /// How long after a meeting ends the Resume action remains available.
-    /// Anchored to the meeting's end time (`start_time + duration_seconds`), which
-    /// is fixed at finalization and immune to later note edits.
-    static let resumeWindow: TimeInterval = 5 * 60 * 60  // 5 hours
-
-    /// - Parameters:
-    ///   - status: the meeting's current status; only `.completed` meetings resume.
-    ///   - endedAt: when the meeting finished (`start_time + duration_seconds`).
-    ///   - now: the current time (injectable for tests).
-    ///   - window: the resume window (defaults to ``resumeWindow``).
-    static func canResume(
-        status: MeetingStatus,
-        endedAt: Date,
-        now: Date = Date(),
-        window: TimeInterval = resumeWindow
-    ) -> Bool {
-        guard status == .completed else { return false }
-        return now.timeIntervalSince(endedAt) < window
+    /// Only finalized meetings can be resumed. Active, processing, note-only, and
+    /// failed rows have separate lifecycle actions.
+    static func canResume(status: MeetingStatus) -> Bool {
+        status == .completed
     }
 
     /// Separator inserted between the prior transcript and the newly recorded one
@@ -36,7 +21,10 @@ enum MeetingResumePolicy {
     /// new was captured (empty/whitespace), the prior transcript is returned
     /// unchanged so a no-op resume never appends a dangling separator.
     static func combinedResumeTranscript(prior: String, new: String) -> String {
-        guard !new.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return prior }
+        let trimmedPrior = prior.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNew = new.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNew.isEmpty else { return prior }
+        guard !trimmedPrior.isEmpty else { return new }
         return prior + resumeSeparator + new
     }
 }

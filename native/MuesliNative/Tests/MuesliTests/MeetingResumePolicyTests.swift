@@ -5,31 +5,15 @@ import MuesliCore
 
 @Suite("Meeting resume policy")
 struct MeetingResumePolicyTests {
-    private let now = Date(timeIntervalSince1970: 1_000_000)
-
-    @Test("a completed meeting that just ended can be resumed")
-    func completedRecentlyCanResume() {
-        let endedAt = now.addingTimeInterval(-60 * 60)  // 1h ago
-        #expect(MeetingResumePolicy.canResume(status: .completed, endedAt: endedAt, now: now))
+    @Test("a completed meeting can be resumed regardless of age")
+    func completedCanResumeRegardlessOfAge() {
+        #expect(MeetingResumePolicy.canResume(status: .completed))
     }
 
-    @Test("a completed meeting older than the window cannot be resumed")
-    func completedStaleCannotResume() {
-        let endedAt = now.addingTimeInterval(-(MeetingResumePolicy.resumeWindow + 60))
-        #expect(!MeetingResumePolicy.canResume(status: .completed, endedAt: endedAt, now: now))
-    }
-
-    @Test("the window boundary is exclusive")
-    func windowBoundaryIsExclusive() {
-        let endedAt = now.addingTimeInterval(-MeetingResumePolicy.resumeWindow)
-        #expect(!MeetingResumePolicy.canResume(status: .completed, endedAt: endedAt, now: now))
-    }
-
-    @Test("non-completed meetings cannot be resumed even within the window")
+    @Test("non-completed meetings cannot be resumed")
     func nonCompletedCannotResume() {
-        let endedAt = now.addingTimeInterval(-60)
         for status in [MeetingStatus.recording, .processing, .noteOnly, .failed] {
-            #expect(!MeetingResumePolicy.canResume(status: status, endedAt: endedAt, now: now))
+            #expect(!MeetingResumePolicy.canResume(status: status))
         }
     }
 
@@ -45,6 +29,12 @@ struct MeetingResumePolicyTests {
     func combinedTranscriptNoNewContent() {
         #expect(MeetingResumePolicy.combinedResumeTranscript(prior: "only half", new: "   \n ") == "only half")
         #expect(MeetingResumePolicy.combinedResumeTranscript(prior: "only half", new: "") == "only half")
+    }
+
+    @Test("combined transcript returns new content without a separator when prior is empty")
+    func combinedTranscriptEmptyPrior() {
+        #expect(MeetingResumePolicy.combinedResumeTranscript(prior: "", new: "new segment") == "new segment")
+        #expect(MeetingResumePolicy.combinedResumeTranscript(prior: "   \n", new: "new segment") == "new segment")
     }
 
     private func makeResult(start: Date, end: Date) -> MeetingSessionResult {
@@ -64,8 +54,8 @@ struct MeetingResumePolicyTests {
         )
     }
 
-    @Test("resume override preserves the original start and spans the duration")
-    func resumeOverridePreservesOriginalStart() {
+    @Test("resume override preserves the original start and accumulates recorded duration")
+    func resumeOverridePreservesOriginalStartAndAccumulatedDuration() {
         let originalStart = Date(timeIntervalSince1970: 1_000_000)
         let resumeStart = originalStart.addingTimeInterval(3600)      // resumed 1h later
         let resumeEnd = resumeStart.addingTimeInterval(30)            // recorded 30s
@@ -73,13 +63,14 @@ struct MeetingResumePolicyTests {
 
         let merged = resumed.overriding(
             startTime: originalStart,
+            durationSeconds: 180 + resumed.durationSeconds,
             rawTranscript: "old\(MeetingResumePolicy.resumeSeparator)new",
             formattedNotes: "merged"
         )
 
         #expect(merged.startTime == originalStart)                    // original date preserved, not the resume moment
         #expect(merged.endTime == resumeEnd)                          // end is the resumed stop
-        #expect(merged.durationSeconds == resumeEnd.timeIntervalSince(originalStart))  // span: start_time + duration == real end
+        #expect(merged.durationSeconds == 210)                         // recorded duration, not wall-clock gap
         #expect(merged.rawTranscript == "old\(MeetingResumePolicy.resumeSeparator)new")
         #expect(merged.formattedNotes == "merged")
     }
