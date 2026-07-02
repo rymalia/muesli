@@ -62,7 +62,7 @@ struct MeetingMarkdownAutoExporterTests {
         config.autoExportMarkdownEnabled = true
         config.autoExportMarkdownFolderPath = destination.path
 
-        let url = exporter.performExport(meeting: makeMeeting(), config: config)
+        let url = exporter.performExport(meeting: makeMeeting(), config: config)?.first
 
         let written = try #require(url)
         #expect(written.pathExtension == "md")
@@ -81,7 +81,7 @@ struct MeetingMarkdownAutoExporterTests {
         config.autoExportMarkdownEnabled = true
         config.autoExportMarkdownFolderPath = destination.path
 
-        let url = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
+        let url = try #require(exporter.performExport(meeting: makeMeeting(), config: config)?.first)
 
         #expect(url.lastPathComponent == "2026-04-14-weekly-standup-notes.md")
     }
@@ -96,7 +96,7 @@ struct MeetingMarkdownAutoExporterTests {
         config.autoExportMarkdownFolderPath = destination.path
         config.autoExportMarkdownContent = MeetingExportContent.transcript.rawValue
 
-        let url = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
+        let url = try #require(exporter.performExport(meeting: makeMeeting(), config: config)?.first)
 
         #expect(url.lastPathComponent.hasSuffix("-transcript.md"))
         let contents = try String(contentsOf: url, encoding: .utf8)
@@ -113,8 +113,8 @@ struct MeetingMarkdownAutoExporterTests {
         config.autoExportMarkdownEnabled = true
         config.autoExportMarkdownFolderPath = destination.path
 
-        let first = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
-        let second = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
+        let first = try #require(exporter.performExport(meeting: makeMeeting(), config: config)?.first)
+        let second = try #require(exporter.performExport(meeting: makeMeeting(), config: config)?.first)
 
         #expect(first.lastPathComponent == "2026-04-14-weekly-standup-notes.md")
         #expect(second.lastPathComponent == "2026-04-14-weekly-standup-notes-2.md")
@@ -134,7 +134,7 @@ struct MeetingMarkdownAutoExporterTests {
         let urls = await withTaskGroup(of: URL?.self) { group in
             for _ in 0..<8 {
                 group.addTask {
-                    exporter.performExport(meeting: makeMeeting(), config: config)
+                    exporter.performExport(meeting: makeMeeting(), config: config)?.first
                 }
             }
 
@@ -170,10 +170,48 @@ struct MeetingMarkdownAutoExporterTests {
         config.autoExportMarkdownEnabled = true
         config.autoExportMarkdownFolderPath = destination.path
 
-        let url = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
+        let url = try #require(exporter.performExport(meeting: makeMeeting(), config: config)?.first)
 
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(url.deletingLastPathComponent().path == destination.standardizedFileURL.path)
+    }
+
+    @Test("PDF format writes a PDF file")
+    func pdfFormatWritesPDF() throws {
+        let support = makeTemporaryDirectory()
+        let destination = makeTemporaryDirectory()
+        let exporter = MeetingMarkdownAutoExporter(supportDirectory: support)
+        var config = AppConfig()
+        config.autoExportMarkdownEnabled = true
+        config.autoExportMarkdownFolderPath = destination.path
+        config.autoExportFileFormat = MeetingAutoExportFileFormat.pdf.rawValue
+
+        let urls = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
+
+        #expect(urls.count == 1)
+        let url = try #require(urls.first)
+        #expect(url.lastPathComponent == "2026-04-14-weekly-standup-notes.pdf")
+        #expect(try Data(contentsOf: url).starts(with: Data("%PDF".utf8)))
+    }
+
+    @Test("Markdown and PDF format writes both files")
+    func markdownAndPDFFormatWritesBothFiles() throws {
+        let support = makeTemporaryDirectory()
+        let destination = makeTemporaryDirectory()
+        let exporter = MeetingMarkdownAutoExporter(supportDirectory: support)
+        var config = AppConfig()
+        config.autoExportMarkdownEnabled = true
+        config.autoExportMarkdownFolderPath = destination.path
+        config.autoExportFileFormat = MeetingAutoExportFileFormat.markdownAndPDF.rawValue
+
+        let urls = try #require(exporter.performExport(meeting: makeMeeting(), config: config))
+        let extensions = Set(urls.map(\.pathExtension))
+
+        #expect(urls.count == 2)
+        #expect(extensions == ["md", "pdf"])
+        for url in urls {
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
     }
 
     // MARK: - Helpers

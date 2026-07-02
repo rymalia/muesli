@@ -99,6 +99,7 @@ struct SettingsView: View {
     @State private var openRouterFreeModels: [SummaryModelPreset] = []
     @State private var isLoadingOpenRouterFreeModels = false
     @State private var openRouterFreeModelsError: String?
+    @State private var hasRefreshedMeetingCalendarSources = false
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
@@ -896,8 +897,8 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Markdown Export") {
-                settingsRow("Auto-export notes as Markdown") {
+            settingsSection("Auto Export") {
+                settingsRow("Auto-export meetings") {
                     settingsSwitch(isOn: appState.config.autoExportMarkdownEnabled) { newValue in
                         controller.updateConfig { $0.autoExportMarkdownEnabled = newValue }
                     }
@@ -908,7 +909,7 @@ struct SettingsView: View {
                         autoExportFolderPicker
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Export") {
+                    settingsRow("Content") {
                         settingsMenu(
                             selection: appState.config.resolvedAutoExportMarkdownContent.displayName,
                             options: MeetingExportContent.allCases.map(\.displayName)
@@ -918,8 +919,18 @@ struct SettingsView: View {
                             controller.updateConfig { $0.autoExportMarkdownContent = content.rawValue }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("File format") {
+                        settingsMenu(
+                            selection: appState.config.resolvedAutoExportFileFormat.displayName,
+                            options: MeetingAutoExportFileFormat.allCases.map(\.displayName)
+                        ) { label in
+                            guard let format = MeetingAutoExportFileFormat.allCases.first(where: { $0.displayName == label }) else { return }
+                            controller.updateConfig { $0.autoExportFileFormat = format.rawValue }
+                        }
+                    }
                 }
-                Text("Automatically saves a Markdown file to the chosen folder after each meeting is recorded, so your notes always land where your other tools (e.g. Obsidian) can find them.")
+                Text("Automatically saves each completed meeting to the chosen folder in the selected format.")
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textTertiary)
                     .padding(.horizontal, MuesliTheme.spacing16)
@@ -1006,8 +1017,7 @@ struct SettingsView: View {
             .padding(.top, MuesliTheme.spacing8)
         }
         .onAppear {
-            controller.refreshAvailableEventKitCalendars()
-            Task { await controller.refreshGoogleCalendarList() }
+            refreshMeetingCalendarSourcesIfNeeded()
         }
     }
 
@@ -2049,6 +2059,13 @@ struct SettingsView: View {
         case .idle, .loaded:
             EmptyView()
         }
+    }
+
+    private func refreshMeetingCalendarSourcesIfNeeded() {
+        guard !hasRefreshedMeetingCalendarSources else { return }
+        hasRefreshedMeetingCalendarSources = true
+        controller.refreshAvailableEventKitCalendars()
+        Task { await controller.refreshGoogleCalendarList() }
     }
 
     private func updateDisabledCalendar(_ calendarID: String, isDisabled: Bool) {
