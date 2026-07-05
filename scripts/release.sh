@@ -61,6 +61,7 @@ HOMEBREW_CASK="${MUESLI_HOMEBREW_CASK:-muesli}"
 SKIP_HOMEBREW_CHECK="${MUESLI_SKIP_HOMEBREW_CHECK:-0}"
 VERIFY_DIR=""
 HOSTED_MOUNT_POINT=""
+HOMEBREW_CHECK_STATUS="skipped"
 
 cleanup() {
   if [[ -n "$HOSTED_MOUNT_POINT" ]]; then
@@ -137,15 +138,19 @@ EOF
 verify_homebrew_autobump() {
   if [[ "$SKIP_HOMEBREW_CHECK" == "1" ]]; then
     echo "  Skipping official Homebrew cask livecheck because MUESLI_SKIP_HOMEBREW_CHECK=1."
+    HOMEBREW_CHECK_STATUS="skipped"
     return 0
   fi
 
   echo "  Verifying official Homebrew cask livecheck for ${HOMEBREW_CASK}..."
+  HOMEBREW_CHECK_STATUS="verified"
   if ! brew livecheck --cask "$HOMEBREW_CASK"; then
     echo "  WARNING: Homebrew livecheck failed; check ${HOMEBREW_CASK} manually." >&2
+    HOMEBREW_CHECK_STATUS="warning"
   fi
   if ! brew bump --cask --no-pull-requests "$HOMEBREW_CASK"; then
     echo "  WARNING: Homebrew autobump verification failed; check ${HOMEBREW_CASK} manually." >&2
+    HOMEBREW_CHECK_STATUS="warning"
   fi
   echo "  BrewTestBot should open ${HOMEBREW_CASK} version bump PRs automatically."
 }
@@ -441,7 +446,9 @@ echo "  Version: ${VERSION}"
 echo "  DMG: $DMG_PATH"
 echo "  Release: $RELEASE_URL"
 echo "  Hosted asset verified."
-if [[ "$SKIP_HOMEBREW_CHECK" != "1" ]]; then
+if [[ "$HOMEBREW_CHECK_STATUS" == "verified" ]]; then
   echo "  Homebrew cask livecheck verified for ${HOMEBREW_CASK}."
   echo "  Watch Homebrew/homebrew-cask for the BrewTestBot autobump PR."
+elif [[ "$HOMEBREW_CHECK_STATUS" == "warning" ]]; then
+  echo "  Homebrew cask verification had warnings; check ${HOMEBREW_CASK} manually."
 fi
