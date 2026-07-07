@@ -1004,45 +1004,61 @@ struct MeetingDetailView: View {
         .help(isPaused ? "Resume recording" : "Pause recording")
     }
 
-    /// Shown on a finished meeting when no recording is active. The primary
-    /// action resumes recording into this meeting artifact; the menu also offers
-    /// starting a linked follow-up meeting.
+    /// Shown on a finished meeting when no recording is active. A split control:
+    /// the left segment resumes recording into this meeting artifact; the right
+    /// chevron opens a menu that also offers starting a linked follow-up meeting.
+    /// (Not `Menu(primaryAction:)` — with a plain custom label on macOS the
+    /// chevron segment doesn't render, leaving the menu unreachable.)
     @ViewBuilder
     private func resumeRecordingButton(for meeting: MeetingRecord) -> some View {
-        Menu {
+        HStack(spacing: 1) {
             Button {
                 controller.resumeFinishedMeeting(meetingID: meeting.id)
             } label: {
-                Label("Resume recording", systemImage: "record.circle")
+                HStack(spacing: 6) {
+                    Image(systemName: "record.circle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Resume")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(MuesliTheme.backgroundBase)
+                .padding(.horizontal, MuesliTheme.spacing12)
+                .padding(.vertical, 7)
+                .background(MuesliTheme.accent)
             }
-            Button {
-                controller.startFollowUpMeeting(fromMeetingID: meeting.id)
+            .buttonStyle(.plain)
+            .help("Resume recording")
+
+            Menu {
+                Button {
+                    controller.resumeFinishedMeeting(meetingID: meeting.id)
+                } label: {
+                    Label("Resume recording", systemImage: "record.circle")
+                }
+                Button {
+                    controller.startFollowUpMeeting(fromMeetingID: meeting.id)
+                } label: {
+                    Label("Start a follow-up", systemImage: "arrow.turn.down.right")
+                }
             } label: {
-                Label("Start a follow-up", systemImage: "arrow.turn.down.right")
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(MuesliTheme.backgroundBase)
+                    .padding(.horizontal, 8)
+                    .frame(maxHeight: .infinity)
+                    .background(MuesliTheme.accent)
             }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "record.circle")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("Resume")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(MuesliTheme.backgroundBase)
-            .padding(.horizontal, MuesliTheme.spacing12)
-            .padding(.vertical, 7)
-            .background(MuesliTheme.accent)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(MuesliTheme.accent.opacity(0.35), lineWidth: 1)
-            )
-        } primaryAction: {
-            controller.resumeFinishedMeeting(meetingID: meeting.id)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize(horizontal: true, vertical: false)
+            .help("Resume recording, or start a follow-up meeting")
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
         .fixedSize()
-        .help("Resume recording, or start a follow-up meeting")
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.accent.opacity(0.35), lineWidth: 1)
+        )
     }
 
     private var stopRecordingButton: some View {
