@@ -161,7 +161,7 @@ enum RecordingWaveformCacheFiles {
                 try fileManager.removeItem(at: entry)
                 removed += 1
             } catch {
-                return .skipped
+                continue
             }
         }
         if removed > 0 {
