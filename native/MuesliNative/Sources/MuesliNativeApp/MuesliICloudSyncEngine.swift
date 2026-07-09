@@ -327,11 +327,9 @@ final class MuesliICloudSyncEngine {
 
         let remoteChanges = try await fetchChangedTextRecords()
         var downloaded = ICloudSyncKindCounts()
-        for record in remoteChanges.records {
-            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
-            if try store.upsertSyncedTextRecord(syncRecord) {
-                downloaded.increment(syncRecord.kind)
-            }
+        let remoteSyncRecords = remoteChanges.records.compactMap(Self.syncTextRecord(from:))
+        for syncRecord in try store.upsertSyncedTextRecords(remoteSyncRecords) {
+            downloaded.increment(syncRecord.kind)
         }
         if let finalToken = remoteChanges.finalToken {
             changeTokenStore.saveToken(finalToken)
@@ -512,17 +510,11 @@ final class MuesliICloudSyncEngine {
         guard !defaults.bool(forKey: Schema.migratedDefaultZoneKey) else { return }
 
         let legacyDefaultZoneRecords = try await fetchAllDefaultZoneTextRecords()
-        for record in legacyDefaultZoneRecords {
-            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
-            _ = try store.upsertSyncedTextRecord(syncRecord)
-        }
+        _ = try store.upsertSyncedTextRecords(legacyDefaultZoneRecords.compactMap(Self.syncTextRecord(from:)))
 
         changeTokenStore.clearToken()
         let existingSyncZoneChanges = try await fetchChangedTextRecordsUsingStoredToken()
-        for record in existingSyncZoneChanges.records {
-            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
-            _ = try store.upsertSyncedTextRecord(syncRecord)
-        }
+        _ = try store.upsertSyncedTextRecords(existingSyncZoneChanges.records.compactMap(Self.syncTextRecord(from:)))
         if let finalToken = existingSyncZoneChanges.finalToken {
             changeTokenStore.saveToken(finalToken)
         }
@@ -531,10 +523,7 @@ final class MuesliICloudSyncEngine {
 
         changeTokenStore.clearToken()
         let primedSyncZoneChanges = try await fetchChangedTextRecordsUsingStoredToken()
-        for record in primedSyncZoneChanges.records {
-            guard let syncRecord = Self.syncTextRecord(from: record) else { continue }
-            _ = try store.upsertSyncedTextRecord(syncRecord)
-        }
+        _ = try store.upsertSyncedTextRecords(primedSyncZoneChanges.records.compactMap(Self.syncTextRecord(from:)))
         if let finalToken = primedSyncZoneChanges.finalToken {
             changeTokenStore.saveToken(finalToken)
         }

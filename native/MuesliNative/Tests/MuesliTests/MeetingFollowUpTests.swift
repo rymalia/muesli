@@ -333,6 +333,31 @@ struct MeetingFollowUpThreadTests {
         #expect(try store.latestMeetingIDInThread(of: a) == later)
     }
 
+    @Test("thread navigation returns direct follow-ups without caller-side scans")
+    func threadNavigationReturnsDirectFollowUps() throws {
+        let store = try makeStore()
+        let start = Date(timeIntervalSince1970: 1_770_000_000)
+        let root = try makeMeeting(store, title: "Root", startTime: start)
+        let early = try makeMeeting(store, title: "Early follow-up", startTime: start.addingTimeInterval(60), followUpToID: root)
+        let late = try makeMeeting(store, title: "Late follow-up", startTime: start.addingTimeInterval(120), followUpToID: root)
+        let nested = try makeMeeting(store, title: "Nested follow-up", startTime: start.addingTimeInterval(180), followUpToID: early)
+
+        let rootNavigation = try #require(try store.meetingThreadNavigation(containing: root))
+        #expect(rootNavigation.predecessorID == nil)
+        #expect(rootNavigation.successorIDs == [early, late])
+        #expect(rootNavigation.position == 1)
+        #expect(rootNavigation.count == 4)
+
+        let earlyNavigation = try #require(try store.meetingThreadNavigation(containing: early))
+        #expect(earlyNavigation.predecessorID == root)
+        #expect(earlyNavigation.successorIDs == [nested])
+        #expect(earlyNavigation.position == 2)
+        #expect(earlyNavigation.count == 4)
+
+        let standalone = try makeMeeting(store, title: "Standalone", startTime: start.addingTimeInterval(240))
+        #expect(try store.meetingThreadNavigation(containing: standalone) == nil)
+    }
+
     @Test("soft-deleting a middle meeting splits the remaining thread")
     func deletedMiddleMeetingSplitsThread() throws {
         let store = try makeStore()
@@ -440,6 +465,75 @@ struct MeetingFollowUpThreadTests {
         #expect(try store.meetingPredecessorID(of: followUp.id) == root.id)
         #expect(try store.meetingPredecessorID(of: secondFollowUp.id) == root.id)
         #expect(try store.meetingThreadIDs(containing: root.id) == [root.id, followUp.id, secondFollowUp.id])
+    }
+
+    @Test("batched sync import reconciles follow-up links once after the page")
+    func batchedSyncImportResolvesStablePredecessorRecordName() throws {
+        let store = try makeStore()
+        let timestamp = Date(timeIntervalSince1970: 1_770_000_000)
+        let records = [
+            SyncTextRecord(
+                id: "meeting-follow",
+                kind: .meeting,
+                title: "Follow-up: Root",
+                text: "follow transcript",
+                summaryText: "follow notes",
+                source: "macos",
+                meetingStatus: .completed,
+                createdAt: timestamp.addingTimeInterval(60),
+                updatedAt: timestamp.addingTimeInterval(60),
+                startedAt: timestamp.addingTimeInterval(60),
+                endedAt: timestamp.addingTimeInterval(120),
+                durationSeconds: 60,
+                wordCount: 2,
+                followUpToRecordName: "meeting-root"
+            ),
+            SyncTextRecord(
+                id: "meeting-follow-2",
+                kind: .meeting,
+                title: "Second follow-up: Root",
+                text: "second follow transcript",
+                summaryText: "second follow notes",
+                source: "macos",
+                meetingStatus: .completed,
+                createdAt: timestamp.addingTimeInterval(180),
+                updatedAt: timestamp.addingTimeInterval(180),
+                startedAt: timestamp.addingTimeInterval(180),
+                endedAt: timestamp.addingTimeInterval(240),
+                durationSeconds: 60,
+                wordCount: 3,
+                followUpToRecordName: "meeting-root"
+            ),
+            SyncTextRecord(
+                id: "meeting-root",
+                kind: .meeting,
+                title: "Root",
+                text: "root transcript",
+                summaryText: "root notes",
+                source: "macos",
+                meetingStatus: .completed,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                startedAt: timestamp,
+                endedAt: timestamp.addingTimeInterval(60),
+                durationSeconds: 60,
+                wordCount: 2
+            )
+        ]
+
+        #expect(try store.upsertSyncedTextRecords(records).map(\.id) == records.map(\.id))
+
+        let meetings = try store.recentMeetings(limit: 10)
+        let root = try #require(meetings.first { $0.title == "Root" })
+        let followUp = try #require(meetings.first { $0.title == "Follow-up: Root" })
+        let secondFollowUp = try #require(meetings.first { $0.title == "Second follow-up: Root" })
+
+        #expect(try store.meetingPredecessorID(of: followUp.id) == root.id)
+        #expect(try store.meetingPredecessorID(of: secondFollowUp.id) == root.id)
+
+        let navigation = try #require(try store.meetingThreadNavigation(containing: root.id))
+        #expect(navigation.successorIDs == [followUp.id, secondFollowUp.id])
+        #expect(navigation.count == 3)
     }
 
     @Test("CloudKit sync payload carries stable predecessor record name")

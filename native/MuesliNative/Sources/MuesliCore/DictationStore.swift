@@ -15,6 +15,13 @@ public enum DictationStoreError: Error, LocalizedError {
     }
 }
 
+public struct MeetingThreadNavigation: Equatable, Sendable {
+    public let predecessorID: Int64?
+    public let successorIDs: [Int64]
+    public let position: Int
+    public let count: Int
+}
+
 public final class DictationStore {
     public static let defaultTombstoneRetentionInterval: TimeInterval = 30 * 24 * 60 * 60
 
@@ -795,12 +802,31 @@ public final class DictationStore {
         try meetingThreadIDs(containing: id).last ?? id
     }
 
+    /// Parent, direct child follow-ups, and chronological position for `id`.
+    /// Returns nil for meetings that are not part of a follow-up thread.
+    public func meetingThreadNavigation(containing id: Int64) throws -> MeetingThreadNavigation? {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        let thread = try meetingThreadIDs(containing: id, db: db)
+        guard thread.count > 1, let index = thread.firstIndex(of: id) else { return nil }
+        return MeetingThreadNavigation(
+            predecessorID: try meetingPredecessorID(of: id, db: db),
+            successorIDs: try meetingSuccessorIDs(of: id, db: db),
+            position: index + 1,
+            count: thread.count
+        )
+    }
+
     /// The follow-up tree containing `id`, ordered chronologically. A meeting
     /// with no links returns just itself.
     public func meetingThreadIDs(containing id: Int64) throws -> [Int64] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        return try meetingThreadIDs(containing: id, db: db)
+    }
 
+    private func meetingThreadIDs(containing id: Int64, db: OpaquePointer?) throws -> [Int64] {
         // Walk back to the root.
         var root = id
         var visited: Set<Int64> = [id]
@@ -2335,14 +2361,42 @@ public final class DictationStore {
 
     @discardableResult
     public func upsertSyncedTextRecord(_ record: SyncTextRecord) throws -> Bool {
+        let applied = try upsertSyncedTextRecords([record])
+        return !applied.isEmpty
+    }
+
+    @discardableResult
+    public func upsertSyncedTextRecords(_ records: [SyncTextRecord]) throws -> [SyncTextRecord] {
+        guard !records.isEmpty else { return [] }
+
         let db = try openDatabase()
         defer { sqlite3_close(db) }
 
-        switch record.kind {
-        case .dictation:
-            return try upsertSyncedDictation(record, db: db)
-        case .meeting:
-            return try upsertSyncedMeeting(record, db: db)
+        try exec("BEGIN IMMEDIATE TRANSACTION", db: db)
+        do {
+            var applied: [SyncTextRecord] = []
+            var sawMeeting = false
+            for record in records {
+                let changed: Bool
+                switch record.kind {
+                case .dictation:
+                    changed = try upsertSyncedDictation(record, db: db)
+                case .meeting:
+                    sawMeeting = true
+                    changed = try upsertSyncedMeeting(record, db: db)
+                }
+                if changed {
+                    applied.append(record)
+                }
+            }
+            if sawMeeting {
+                try reconcileFollowUpLinks(db: db)
+            }
+            try exec("COMMIT", db: db)
+            return applied
+        } catch {
+            _ = sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
         }
     }
 
@@ -2921,9 +2975,7 @@ public final class DictationStore {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
-        let changed = sqlite3_changes(db) > 0
-        try reconcileFollowUpLinks(db: db)
-        return changed
+        return sqlite3_changes(db) > 0
     }
 
     private func normalizedFollowUpRecordName(_ followUpRecordName: String?, recordName: String) -> String? {

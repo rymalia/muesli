@@ -4459,20 +4459,12 @@ final class MuesliController: NSObject {
     /// Returns nil for meetings that are not part of a follow-up thread.
     func meetingThreadContext(for meetingID: Int64) -> MeetingThreadContext? {
         do {
-            let thread = try dictationStore.meetingThreadIDs(containing: meetingID)
-            guard thread.count > 1, let index = thread.firstIndex(of: meetingID) else { return nil }
-            let predecessorID = try dictationStore.meetingPredecessorID(of: meetingID)
-            var successorIDs: [Int64] = []
-            for candidateID in thread where candidateID != meetingID {
-                if try dictationStore.meetingPredecessorID(of: candidateID) == meetingID {
-                    successorIDs.append(candidateID)
-                }
-            }
+            guard let navigation = try dictationStore.meetingThreadNavigation(containing: meetingID) else { return nil }
             return MeetingThreadContext(
-                predecessor: predecessorID.flatMap { meeting(id: $0) },
-                successors: successorIDs.compactMap { meeting(id: $0) },
-                position: index + 1,
-                count: thread.count
+                predecessor: navigation.predecessorID.flatMap { meeting(id: $0) },
+                successors: navigation.successorIDs.compactMap { meeting(id: $0) },
+                position: navigation.position,
+                count: navigation.count
             )
         } catch {
             fputs("[muesli-native] failed to resolve meeting thread for \(meetingID): \(error)\n", stderr)
