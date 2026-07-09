@@ -13,6 +13,9 @@ on:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       review_worthy: ${{ steps.classify.outputs.review_worthy }}
     steps:
@@ -20,14 +23,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Classify changed files
         id: classify
         run: |
-          FILES=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          if ! FILES=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"); then
+            FILES=""
+          fi
           echo "Changed files:"
           printf '%s\n' "$FILES"
-          printf '%s\n' "$FILES" | ./scripts/classify_changed_files.sh
+          if ! printf '%s\n' "$FILES" | ./scripts/classify_changed_files.sh; then
+            echo "::warning::Changed-file classifier failed; running Claude review as a fail-open fallback."
+            echo "review_worthy=true" >> "$GITHUB_OUTPUT"
+          fi
 
   claude-review:
     needs: changes
@@ -55,6 +64,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude Code Review
         id: claude-review
