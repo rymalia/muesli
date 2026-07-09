@@ -402,6 +402,32 @@ struct MeetingFollowUpThreadTests {
         #expect(followUp.followUpToRecordName == root.id)
     }
 
+    @Test("deleted follow-up tombstones do not export stale predecessor links")
+    func deletedFollowUpTombstoneClearsPredecessorRecordName() throws {
+        let store = try makeStore()
+        let rootID = try makeMeeting(store, title: "Root")
+        let followUpID = try makeMeeting(store, title: "Follow-up: Root", followUpToID: rootID)
+        try completeMeeting(store, id: rootID, title: "Root")
+        try completeMeeting(store, id: followUpID, title: "Follow-up: Root")
+
+        let initialRecords = try store.textRecordsNeedingSync(limit: 10)
+            .filter { $0.kind == .meeting }
+        let followUpRecord = try #require(initialRecords.first { $0.title == "Follow-up: Root" })
+        #expect(try store.markTextRecordSynced(
+            kind: .meeting,
+            recordName: followUpRecord.id,
+            changeTag: "tag-follow",
+            recordUpdatedAt: followUpRecord.updatedAt
+        ))
+
+        try store.deleteMeeting(id: followUpID)
+
+        let tombstone = try #require(try store.textRecordsNeedingSync(limit: 10)
+            .first { $0.kind == .meeting && $0.id == followUpRecord.id })
+        #expect(tombstone.isDeleted)
+        #expect(tombstone.followUpToRecordName == nil)
+    }
+
     @Test("sync import resolves follow-up links by stable record name")
     func syncImportResolvesStablePredecessorRecordName() throws {
         let store = try makeStore()

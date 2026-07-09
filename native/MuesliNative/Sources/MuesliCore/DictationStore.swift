@@ -991,6 +991,8 @@ public final class DictationStore {
             mic_audio_path = NULL,
             system_audio_path = NULL,
             saved_recording_path = NULL,
+            follow_up_to_id = NULL,
+            follow_up_to_record_name = NULL,
             word_count = 0,
             duration_seconds = 0,
             deleted_at = ?,
