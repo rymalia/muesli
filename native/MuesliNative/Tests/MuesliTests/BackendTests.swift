@@ -187,6 +187,27 @@ struct Gemma4LiteRTTranscriberTests {
             at: url,
             minimumSizeBytes: Gemma4LiteRTModelStore.minimumDownloadedModelSizeBytes
         ))
+        #expect(throws: Error.self) {
+            try Gemma4LiteRTModelStore.validateDownloadedLiteRTLMFile(
+                at: url,
+                fileManager: .default
+            )
+        }
+    }
+
+    @Test("gemma4 managed download validation rejects directories")
+    func gemma4ManagedDownloadValidationRejectsDirectories() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muesli-gemma4-download-directory-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(throws: Error.self) {
+            try Gemma4LiteRTModelStore.validateDownloadedLiteRTLMFile(
+                at: url,
+                fileManager: .default
+            )
+        }
     }
 
     @Test("gemma4 defaults to GPU backend and allows a CPU override")
@@ -278,8 +299,14 @@ struct Gemma4LiteRTTranscriberTests {
         #expect(Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
             "That's a valid point. While Gemma 4 is a powerful model, its speed can vary depending on the specific task and hardware."
         ))
-        #expect(Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
+        #expect(!Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
             "What is the mistake you are referring to?"
+        ))
+        #expect(!Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
+            "Sure, I can help you with that."
+        ))
+        #expect(!Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
+            "I understand you're looking for help with this report."
         ))
         #expect(!Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
             "Hello, I am trying to check whether you can hear me properly."
@@ -293,7 +320,7 @@ struct Gemma4LiteRTTranscriberTests {
         #expect(!Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
             "He served as an aide to the senator for three years."
         ))
-        #expect(Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
+        #expect(!Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
             "Speaking as an AI, I can confirm that the model is efficient."
         ))
         #expect(Gemma4LiteRTTranscriber.looksLikeAssistantResponse(
@@ -330,6 +357,11 @@ struct Gemma4LiteRTTranscriberTests {
             fromResponseJSON: #"{"content":"Hello, I am trying to check whether you can hear me properly."}"#
         )
         #expect(text == "Hello, I am trying to check whether you can hear me properly.")
+
+        let quotedAssistantPhrase = try Gemma4LiteRTTranscriber.validatedTranscript(
+            fromResponseJSON: #"{"content":"Sure, I can help you with that."}"#
+        )
+        #expect(quotedAssistantPhrase == "Sure, I can help you with that.")
     }
 
     @available(macOS 15, *)

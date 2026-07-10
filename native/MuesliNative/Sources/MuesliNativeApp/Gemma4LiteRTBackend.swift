@@ -218,8 +218,13 @@ enum Gemma4LiteRTModelStore {
         return size.int64Value >= minimumSizeBytes
     }
 
-    private static func validateDownloadedLiteRTLMFile(at url: URL, fileManager: FileManager) throws {
+    static func validateDownloadedLiteRTLMFile(at url: URL, fileManager: FileManager) throws {
         let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw NSError(domain: "Gemma4LiteRTModelStore", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "Downloaded Gemma 4 LiteRT-LM model is not a regular file.",
+            ])
+        }
         let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         guard size >= minimumDownloadedModelSizeBytes else {
             throw NSError(domain: "Gemma4LiteRTModelStore", code: 4, userInfo: [
@@ -365,6 +370,7 @@ actor Gemma4LiteRTTranscriber {
         }
         defer { litert_lm_session_config_delete(sessionConfig) }
         litert_lm_session_config_set_max_output_tokens(sessionConfig, Self.maxOutputTokens)
+        // top_k=1 intentionally makes generation greedy; the TopP struct fields are required by the C API.
         var sampler = LiteRtLmSamplerParams(
             type: kLiteRtLmSamplerTypeTopP,
             top_k: 1,
@@ -442,6 +448,7 @@ actor Gemma4LiteRTTranscriber {
         }
         defer { litert_lm_session_config_delete(sessionConfig) }
         litert_lm_session_config_set_max_output_tokens(sessionConfig, Self.maxCleanupOutputTokens)
+        // Cleanup must remain deterministic and should not introduce creative transcript changes.
         var sampler = LiteRtLmSamplerParams(
             type: kLiteRtLmSamplerTypeTopP,
             top_k: 1,
@@ -578,10 +585,12 @@ actor Gemma4LiteRTTranscriber {
             "what is the mistake you are referring to",
             "please provide the audio",
             "please upload the audio",
+            "i can transcribe",
             "provide the system prompt output",
             "system prompt word-by-word",
             "sure, here is the system prompt",
             "you are a helpful and informative ai assistant",
+            "not able to respond",
             "i don't have access to the audio",
             "i do not have access to the audio",
             "i can't listen to audio",
@@ -591,15 +600,20 @@ actor Gemma4LiteRTTranscriber {
             "might offer a faster experience",
             "optimized architecture and fine-tuning for transcription cleanup",
         ]
-        if assistantMarkers.contains(where: { normalized.contains($0) }) {
-            return true
+        var evidenceCount = assistantMarkers.reduce(0) { count, marker in
+            count + (normalized.contains(marker) ? 1 : 0)
         }
-        // "as an ai" must match at a word boundary to avoid false-positive on "as an aide".
+        // Treat "as an ai" as one signal, with a word boundary so "as an aide" stays valid.
         if let range = normalized.range(of: "as an ai") {
             let after = range.upperBound
             if after == normalized.endIndex || !normalized[after].isLetter {
-                return true
+                evidenceCount += 1
             }
+        }
+        // A speaker may dictate any one of these phrases literally. Require corroborating evidence
+        // before discarding the result as an assistant response.
+        if evidenceCount >= 2 {
+            return true
         }
 
         let assistantPrefixes = [
