@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStandardEditMenu()
 
         let runtimeTelemetry = TelemetryRuntimeConfiguration.current()
-        let telemetryConfig = TelemetryDeck.Config(appID: runtimeTelemetry.appID)
+        let telemetryConfig = TelemetryDeck.Config(appID: runtimeTelemetry.sdkAppID)
         telemetryConfig.analyticsDisabled = !runtimeTelemetry.isEnabled
         telemetryConfig.defaultParameters = { runtimeTelemetry.defaultParameters }
         TelemetryDeck.initialize(config: telemetryConfig)

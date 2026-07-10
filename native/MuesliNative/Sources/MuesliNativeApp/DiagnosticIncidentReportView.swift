@@ -31,7 +31,7 @@ struct DiagnosticIncidentReportView: View {
                     diagnosticSummaryRow("Failure", value: incident.kind.title)
                     diagnosticSummaryRow("Stage", value: incident.stage.rawValue)
                     diagnosticSummaryRow("Model", value: incident.model)
-                    diagnosticSummaryRow("Error", value: "\(incident.errorDomain) \(incident.errorCode)")
+                    diagnosticSummaryRow("Error", value: incident.errorDisplayIdentifier)
                     diagnosticSummaryRow("Meaning", value: incident.errorFingerprint.summary)
                 }
                 .padding(MuesliTheme.spacing12)

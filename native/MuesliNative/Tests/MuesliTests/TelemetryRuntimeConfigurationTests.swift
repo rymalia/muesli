@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import MuesliNativeApp
 
@@ -14,6 +15,7 @@ struct TelemetryRuntimeConfigurationTests {
 
         #expect(configuration.isEnabled)
         #expect(configuration.appID == validAppID)
+        #expect(configuration.sdkAppID == validAppID)
         #expect(configuration.channel.rawValue == channel)
         #expect(configuration.defaultParameters["muesli.channel"] == channel)
         #expect(configuration.defaultParameters["muesli.bundle_id"] == "com.muesli.test")
@@ -25,6 +27,8 @@ struct TelemetryRuntimeConfigurationTests {
 
         #expect(!configuration.isEnabled)
         #expect(configuration.appID.isEmpty)
+        #expect(configuration.sdkAppID == TelemetryRuntimeConfiguration.disabledSDKAppID)
+        #expect(UUID(uuidString: configuration.sdkAppID) != nil)
         #expect(configuration.channel == .unconfigured)
     }
 
@@ -34,6 +38,7 @@ struct TelemetryRuntimeConfigurationTests {
 
         #expect(!configuration.isEnabled)
         #expect(configuration.appID.isEmpty)
+        #expect(configuration.sdkAppID == TelemetryRuntimeConfiguration.disabledSDKAppID)
         #expect(configuration.channel == .unconfigured)
     }
 

@@ -134,6 +134,13 @@ struct DiagnosticIncident: Codable, Equatable, Identifiable, Sendable {
 
     var errorDomain: String { errorFingerprint.safeDomain ?? "unclassified" }
     var errorCode: String { errorFingerprint.safeCode ?? "unclassified" }
+    var errorDisplayIdentifier: String {
+        guard let domain = errorFingerprint.safeDomain,
+              let code = errorFingerprint.safeCode else {
+            return errorFingerprint.signature
+        }
+        return "\(domain) \(code)"
+    }
 
     init(
         id: UUID = UUID(),

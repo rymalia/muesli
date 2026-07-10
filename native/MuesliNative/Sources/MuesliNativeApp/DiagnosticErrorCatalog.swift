@@ -243,14 +243,19 @@ enum DiagnosticErrorCatalog {
         )
     }
 
-    private static func signatureToken(_ value: String) -> String {
-        let mapped = value.unicodeScalars.map { scalar -> Character in
+    static func signatureToken(_ value: String) -> String {
+        var token = ""
+        var previousWasSeparator = false
+        for scalar in value.unicodeScalars {
             if CharacterSet.alphanumerics.contains(scalar) {
-                return Character(String(scalar).lowercased())
+                token.append(contentsOf: String(scalar).lowercased())
+                previousWasSeparator = false
+            } else if !previousWasSeparator {
+                token.append("_")
+                previousWasSeparator = true
             }
-            return "_"
         }
-        return String(mapped).replacingOccurrences(of: "__", with: "_")
+        return token
     }
 
     private static let domainFallbacks: [String: DiagnosticErrorMeaning] = [

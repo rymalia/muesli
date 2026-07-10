@@ -11,11 +11,16 @@ enum MuesliTelemetryChannel: String, CaseIterable, Sendable {
 struct TelemetryRuntimeConfiguration: Equatable, Sendable {
     static let appIDInfoKey = "MuesliTelemetryDeckAppID"
     static let channelInfoKey = "MuesliTelemetryChannel"
+    static let disabledSDKAppID = "00000000-0000-0000-0000-000000000000"
 
     let appID: String
     let channel: MuesliTelemetryChannel
     let bundleID: String
     let isEnabled: Bool
+
+    var sdkAppID: String {
+        isEnabled ? appID : Self.disabledSDKAppID
+    }
 
     static func current(bundle: Bundle = .main) -> TelemetryRuntimeConfiguration {
         resolve(

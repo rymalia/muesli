@@ -58,6 +58,7 @@ struct DiagnosticIncidentTests {
         #expect(incident.issueBody.contains("Incident ID: \(incidentID.uuidString)"))
         #expect(incident.issueBody.contains("Error domain: unclassified"))
         #expect(incident.issueBody.contains("private error details were omitted"))
+        #expect(incident.errorDisplayIdentifier == "unclassified")
     }
 
     @Test("known internal error codes emit stable allowlisted fingerprints")
@@ -80,6 +81,12 @@ struct DiagnosticIncidentTests {
         #expect(incident.telemetryParameters["diagnostic.error_code"] == "3")
         #expect(incident.telemetryParameters["diagnostic.error_summary"] == nil)
         #expect(incident.issueBody.contains("Error meaning: Preferred microphone input could not be selected"))
+        #expect(incident.errorDisplayIdentifier == "MicrophoneRecorder 3")
+    }
+
+    @Test("signature tokens collapse adjacent separators deterministically")
+    func signatureTokensCollapseAdjacentSeparators() {
+        #expect(DiagnosticErrorCatalog.signatureToken("Foo...Bar///Baz") == "foo_bar_baz")
     }
 
     @Test("observed FluidAudio not-loaded error has a specific fingerprint")
