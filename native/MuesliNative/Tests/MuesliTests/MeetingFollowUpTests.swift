@@ -372,6 +372,39 @@ struct MeetingFollowUpThreadTests {
         #expect(try store.meetingThreadIDs(containing: c) == [c])
     }
 
+    @Test("meeting deletion rolls back when successor detachment fails")
+    func deletionRollsBackWhenSuccessorDetachmentFails() throws {
+        let store = try makeStore()
+        let rootID = try makeMeeting(store, title: "Root")
+        let followUpID = try makeMeeting(store, title: "Follow-up", followUpToID: rootID)
+
+        var db: OpaquePointer?
+        guard sqlite3_open(store.resolvedDatabaseURL.path, &db) == SQLITE_OK else {
+            throw NSError(domain: "MeetingFollowUpTests", code: 1)
+        }
+        let triggerSQL = """
+        CREATE TRIGGER fail_follow_up_detach
+        BEFORE UPDATE OF follow_up_to_id, follow_up_to_record_name ON meetings
+        WHEN OLD.follow_up_to_id = \(rootID) AND NEW.follow_up_to_id IS NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'forced successor detach failure');
+        END;
+        """
+        guard sqlite3_exec(db, triggerSQL, nil, nil, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            throw NSError(domain: "MeetingFollowUpTests", code: 2)
+        }
+        sqlite3_close(db)
+
+        #expect(throws: Error.self) {
+            try store.deleteMeeting(id: rootID)
+        }
+
+        let root = try #require(try store.meeting(id: rootID))
+        #expect(root.title == "Root")
+        #expect(try store.meetingPredecessorID(of: followUpID) == rootID)
+    }
+
     @Test("purging a deleted predecessor does not fail with a live successor")
     func purgeDeletedPredecessorWithSuccessor() throws {
         let store = try makeStore()

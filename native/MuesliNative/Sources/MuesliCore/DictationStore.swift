@@ -980,42 +980,50 @@ public final class DictationStore {
     public func deleteMeeting(id: Int64) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        try deleteResumeSnapshot(meetingID: id, db: db)
-        try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
-        let sql = """
-        UPDATE meetings
-        SET title = 'Deleted Meeting',
-            raw_transcript = '',
-            formatted_notes = NULL,
-            manual_notes = '',
-            mic_audio_path = NULL,
-            system_audio_path = NULL,
-            saved_recording_path = NULL,
-            follow_up_to_id = NULL,
-            follow_up_to_record_name = NULL,
-            word_count = 0,
-            duration_seconds = 0,
-            deleted_at = ?,
-            updated_at = ?,
-            sync_dirty = 1
-        WHERE id = ? AND deleted_at IS NULL
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw lastError(db)
+        try exec("BEGIN IMMEDIATE", db: db)
+
+        do {
+            try deleteResumeSnapshot(meetingID: id, db: db)
+            try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
+            let sql = """
+            UPDATE meetings
+            SET title = 'Deleted Meeting',
+                raw_transcript = '',
+                formatted_notes = NULL,
+                manual_notes = '',
+                mic_audio_path = NULL,
+                system_audio_path = NULL,
+                saved_recording_path = NULL,
+                follow_up_to_id = NULL,
+                follow_up_to_record_name = NULL,
+                word_count = 0,
+                duration_seconds = 0,
+                deleted_at = ?,
+                updated_at = ?,
+                sync_dirty = 1
+            WHERE id = ? AND deleted_at IS NULL
+            """
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(statement) }
+            let now = Date().timeIntervalSince1970
+            sqlite3_bind_double(statement, 1, now)
+            sqlite3_bind_double(statement, 2, now)
+            sqlite3_bind_int64(statement, 3, id)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw lastError(db)
+            }
+            guard sqlite3_changes(db) > 0 else {
+                throw DictationStoreError.meetingNotFound(id: id)
+            }
+            try detachFollowUpSuccessors(of: id, db: db)
+            try exec("COMMIT", db: db)
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
         }
-        defer { sqlite3_finalize(statement) }
-        let now = Date().timeIntervalSince1970
-        sqlite3_bind_double(statement, 1, now)
-        sqlite3_bind_double(statement, 2, now)
-        sqlite3_bind_int64(statement, 3, id)
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw lastError(db)
-        }
-        guard sqlite3_changes(db) > 0 else {
-            throw DictationStoreError.meetingNotFound(id: id)
-        }
-        try detachFollowUpSuccessors(of: id, db: db)
     }
 
     public func clearDictations() throws {
