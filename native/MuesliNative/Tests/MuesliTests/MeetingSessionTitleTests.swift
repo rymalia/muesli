@@ -33,3 +33,30 @@ struct MeetingSessionTitleTests {
         #expect(title == nil)
     }
 }
+
+@Suite("Meeting session recovery policy")
+struct MeetingSessionRecoveryPolicyTests {
+    @Test("Nemotron falls back to system audio when streaming produced no segments")
+    func unifiedNemotronRecoversEmptySystemTranscript() {
+        #expect(MeetingSession.shouldAttemptSystemRecovery(
+            usesUnifiedNemotronTranscript: true,
+            hasSystemSegments: false
+        ))
+    }
+
+    @Test("Nemotron skips redundant system recovery when streaming produced segments")
+    func unifiedNemotronKeepsStreamingSystemTranscript() {
+        #expect(!MeetingSession.shouldAttemptSystemRecovery(
+            usesUnifiedNemotronTranscript: true,
+            hasSystemSegments: true
+        ))
+    }
+
+    @Test("batch meeting paths retain their existing system recovery behavior")
+    func batchPathStillAttemptsSystemRecovery() {
+        #expect(MeetingSession.shouldAttemptSystemRecovery(
+            usesUnifiedNemotronTranscript: false,
+            hasSystemSegments: true
+        ))
+    }
+}

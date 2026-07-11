@@ -20,20 +20,25 @@ struct TranscriptionEngineArtifactsFilter {
     /// prompt leakage while preserving ordinary transcript text.
     static func apply(_ text: String) -> String {
         var stripped = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var removedArtifact = false
         for pattern in artifactPatterns {
-            stripped = stripped.replacingOccurrences(
+            let filtered = stripped.replacingOccurrences(
                 of: pattern,
                 with: " ",
                 options: .regularExpression
             )
+            removedArtifact = removedArtifact || filtered != stripped
+            stripped = filtered
         }
         // Some streaming decoders prefix non-speech annotations with a speaker
         // marker. Do not leave that marker behind when the annotation is removed.
-        stripped = stripped.replacingOccurrences(
-            of: #"^\s*(?:>>|>|»)+\s*$"#,
-            with: "",
-            options: .regularExpression
-        )
+        if removedArtifact {
+            stripped = stripped.replacingOccurrences(
+                of: #"^\s*(?:>>|>|»)+\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+        }
 
         return stripPromptLeakage(from: stripped)
     }

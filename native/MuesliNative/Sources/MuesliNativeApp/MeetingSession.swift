@@ -647,7 +647,11 @@ final class MeetingSession {
             return lhs.start < rhs.start
         }
 
-        if let systemAudioURL, !usesUnifiedNemotronTranscript {
+        if let systemAudioURL,
+           Self.shouldAttemptSystemRecovery(
+               usesUnifiedNemotronTranscript: usesUnifiedNemotronTranscript,
+               hasSystemSegments: !systemSegments.isEmpty
+           ) {
             let systemRecovery = await repairSystemSegmentsIfNeeded(
                 existingSystemSegments: systemSegments,
                 systemAudioURL: systemAudioURL,
@@ -773,6 +777,13 @@ final class MeetingSession {
         guard calendarEventID != nil else { return nil }
         guard !originalTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return originalTitle
+    }
+
+    static func shouldAttemptSystemRecovery(
+        usesUnifiedNemotronTranscript: Bool,
+        hasSystemSegments: Bool
+    ) -> Bool {
+        !usesUnifiedNemotronTranscript || !hasSystemSegments
     }
 
     private func userEditedLiveTitle() async -> String? {

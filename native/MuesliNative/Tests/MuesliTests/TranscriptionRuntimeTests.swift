@@ -226,6 +226,8 @@ struct TranscriptionEngineArtifactsFilterTests {
     @Test("strips decorated streaming blank-audio artifact")
     func decoratedStreamingArtifact() {
         #expect(TranscriptionEngineArtifactsFilter.apply(">> [BLANK_AUDIO]") == "")
+        #expect(TranscriptionEngineArtifactsFilter.apply(">> [BLANK_AUDIO] Hello") == "Hello")
+        #expect(TranscriptionEngineArtifactsFilter.apply(">> Hello") == ">> Hello")
     }
 
     @Test("strips model control tokens and non-speech annotations")
