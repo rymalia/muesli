@@ -39,12 +39,12 @@ struct SpeechTranscriptionResultTests {
     }
 }
 
-@Suite("Qwen3 inference gate")
-struct Qwen3InferenceGateTests {
+@Suite("Inference serialization gate")
+struct InferenceGateTests {
 
     @Test("cancelled waiter is removed before next slot")
     func cancelledWaiterDoesNotConsumeSlot() async throws {
-        let gate = Qwen3InferenceGate()
+        let gate = InferenceGate()
         try await gate.acquire()
 
         let cancelled = Task {

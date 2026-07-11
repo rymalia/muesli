@@ -78,9 +78,16 @@ enum MeetingLiveCaptionModelStore {
             try await transcriber.loadModels()
             let mic = Nemotron35MeetingPartialEngine(transcriber: transcriber, label: "You")
             let system = Nemotron35MeetingPartialEngine(transcriber: transcriber, label: "Others")
-            try await mic.prepare()
-            try await system.prepare()
-            return (mic, system)
+            do {
+                try await mic.prepare()
+                try await system.prepare()
+                return (mic, system)
+            } catch {
+                await mic.shutdown()
+                await system.shutdown()
+                await transcriber.shutdown()
+                throw error
+            }
         }
     }
 }
