@@ -1030,8 +1030,8 @@ struct AppConfig: Codable {
     var enableScreenContext: Bool = false
     var enableDictationOCRContext: Bool = false
     var useCoreAudioTap: Bool = true
-    /// Display-only streaming partials in the live meeting transcript (needs the
-    /// Nemotron 3.5 streaming model on disk; kill switch, never downloads).
+    /// Display-only Parakeet EOU partials in the live meeting transcript. The
+    /// dedicated model is managed explicitly from the Models screen.
     var enableLiveStreamingPartials: Bool = true
     var meetingHookEnabled: Bool = false
     var meetingHookPath: String = ""

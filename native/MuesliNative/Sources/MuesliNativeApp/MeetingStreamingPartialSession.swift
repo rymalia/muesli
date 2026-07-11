@@ -1,72 +1,162 @@
+import AVFoundation
+import FluidAudio
 import Foundation
 import os
 
+enum MeetingLiveCaptionModelStore {
+    static let repo = Repo.parakeetEou320
+    static let sizeLabel = "~430 MB"
+    static let label = "Parakeet Realtime EOU"
+
+    static func cacheRoot(fileManager: FileManager = .default) -> URL {
+        fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/FluidAudio/Models", isDirectory: true)
+    }
+
+    static func modelDirectory(fileManager: FileManager = .default) -> URL {
+        modelDirectory(in: cacheRoot(fileManager: fileManager))
+    }
+
+    static func isDownloaded(fileManager: FileManager = .default) -> Bool {
+        isDownloaded(in: cacheRoot(fileManager: fileManager), fileManager: fileManager)
+    }
+
+    static func modelDirectory(in cacheRoot: URL) -> URL {
+        cacheRoot.appendingPathComponent(repo.folderName, isDirectory: true)
+    }
+
+    static func isDownloaded(in cacheRoot: URL, fileManager: FileManager = .default) -> Bool {
+        let directory = modelDirectory(in: cacheRoot)
+        return ModelNames.ParakeetEOU.requiredModels.allSatisfy {
+            fileManager.fileExists(atPath: directory.appendingPathComponent($0).path)
+        }
+    }
+
+    static func download(
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
+        try await DownloadUtils.downloadRepo(repo, to: cacheRoot()) { update in
+            progress?(update.fractionCompleted)
+        }
+    }
+
+    static func delete(fileManager: FileManager = .default) throws {
+        let directory = modelDirectory(fileManager: fileManager)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try fileManager.removeItem(at: directory)
+    }
+
+    static func makeEngine(label: String) async throws -> MeetingStreamingPartialEngine {
+        let engine = ParakeetEOUMeetingPartialEngine(label: label)
+        try await engine.loadModels(from: modelDirectory())
+        return engine
+    }
+}
+
+protocol MeetingStreamingPartialEngine: AnyObject, Sendable {
+    func setPartialHandler(_ handler: @escaping @Sendable (String) -> Void) async
+    func process(samples: [Float]) async throws
+    func shutdown() async
+}
+
+private actor ParakeetEOUMeetingPartialEngine: MeetingStreamingPartialEngine {
+    private let manager = StreamingEouAsrManager(chunkSize: .ms320)
+    private let label: String
+
+    init(label: String) {
+        self.label = label
+    }
+
+    func loadModels(from directory: URL) async throws {
+        try await manager.loadModels(from: directory)
+    }
+
+    func setPartialHandler(_ handler: @escaping @Sendable (String) -> Void) async {
+        await manager.setPartialCallback(handler)
+    }
+
+    func process(samples: [Float]) async throws {
+        guard !samples.isEmpty else { return }
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ), let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ), let channel = buffer.floatChannelData?[0] else {
+            throw NSError(
+                domain: "MeetingLiveCaptions",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not allocate a 16 kHz live-caption buffer."]
+            )
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        channel.update(from: samples, count: samples.count)
+        _ = try await manager.process(audioBuffer: buffer)
+    }
+
+    func shutdown() async {
+        await manager.cleanup()
+        fputs("[meeting-partials] \(label) Parakeet EOU session stopped\n", stderr)
+    }
+}
+
 /// Display-only streaming partials for one meeting audio source ("You" or "Others").
 ///
-/// Fed the same 16 kHz float samples the source's VAD consumes (on
-/// `MeetingSession.chunkRotationQueue`), it slices them into the transcriber's
-/// native chunk size and decodes incrementally with a private `RNNTStreamState`,
-/// publishing a provisional "tail" for the in-flight VAD segment. The durable
-/// pipeline (chunk files → batch transcription → checkpoints) is untouched:
-/// when a VAD chunk rotates, the tail accumulated so far is frozen, and when
-/// that chunk's committed line lands, the frozen prefix is dropped so the tail
-/// keeps only text newer than the committed caption.
-///
-/// Failure is non-fatal by design — on any transcription error the session
-/// logs once, clears its tail, and goes dormant; the committed path is never
-/// affected.
-@available(macOS 15, *)
-final class MeetingStreamingPartialSession {
+/// The session receives the same 16 kHz samples as the existing meeting VAD and
+/// chunk recorders. Parakeet EOU supplies a low-latency cumulative transcript,
+/// while VAD rotation and durable chunk transcription remain authoritative:
+/// `markSegmentBoundary()` freezes the provisional prefix and
+/// `commitSegment()` removes it only after the existing chunk retires.
+final class MeetingStreamingPartialSession: @unchecked Sendable {
     /// Called with the current provisional tail text on a background thread.
     /// An empty string clears the tail.
     var onPartialUpdate: ((String) -> Void)?
 
-    private let transcriber: NemotronStreamingTranscribing
-    private let chunkSamples: Int
-    private let label: String
-
-    /// Backpressure bound: if inference falls behind real time (thermal
-    /// throttling, ANE contention), keep only the freshest chunks so the tail
-    /// snaps back to near-live audio instead of lagging monotonically. The
-    /// dropped audio garbles a couple of words of provisional text — the
-    /// committed captions are unaffected.
+    /// Feed the EOU manager at its 320 ms shift cadence. The manager retains the
+    /// larger look-ahead window required by its cache-aware encoder.
+    static let feedSamples = StreamingChunkSize.ms320.shiftSamples
     static let maxQueuedChunks = 3
+
+    private let engine: MeetingStreamingPartialEngine
+    private let label: String
 
     private struct State {
         var sampleBuffer: [Float] = []
         var chunkQueue: [[Float]] = []
         var isDraining = false
-        var streamState: RNNTStreamState?
-        var accumulatedText = ""
-        /// Character count frozen at the last VAD segment boundary. Dropped
-        /// when that segment's committed line lands. If a second boundary
-        /// arrives before the first commit, the freeze point simply moves
-        /// forward — the next commit then clears slightly more than one
-        /// chunk's text, which is acceptable for a display-only tail.
-        var pendingCommitPrefixLength = 0
+        var engineText = ""
+        var committedPrefixLength = 0
+        var pendingCommitPrefixLengths: [Int] = []
         var isStopped = false
         var isSuspended = false
         var didFail = false
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    init(transcriber: NemotronStreamingTranscribing, chunkSamples: Int, label: String) {
-        precondition(chunkSamples > 0, "MeetingStreamingPartialSession chunkSamples must be positive")
-        self.transcriber = transcriber
-        self.chunkSamples = chunkSamples
+    init(engine: MeetingStreamingPartialEngine, label: String) {
+        self.engine = engine
         self.label = label
     }
 
-    /// Cheap append; safe to call on the meeting session's serial audio queue.
-    /// Slices full chunks off the buffer and kicks the drain task when needed.
+    func connect() async {
+        await engine.setPartialHandler { [weak self] text in
+            self?.receiveEnginePartial(text)
+        }
+    }
+
+    /// Cheap append called from the existing meeting audio queue. Inference is
+    /// single-flight and bounded so provisional captions cannot delay recording.
     func enqueue(_ samples: [Float]) {
         guard !samples.isEmpty else { return }
-        let shouldStartDrain: Bool = state.withLock { s in
+        let shouldStartDrain = state.withLock { s -> Bool in
             guard !s.isStopped, !s.isSuspended, !s.didFail else { return false }
             s.sampleBuffer.append(contentsOf: samples)
-            while s.sampleBuffer.count >= chunkSamples {
-                s.chunkQueue.append(Array(s.sampleBuffer.prefix(chunkSamples)))
-                s.sampleBuffer.removeFirst(chunkSamples)
+            while s.sampleBuffer.count >= Self.feedSamples {
+                s.chunkQueue.append(Array(s.sampleBuffer.prefix(Self.feedSamples)))
+                s.sampleBuffer.removeFirst(Self.feedSamples)
             }
             if s.chunkQueue.count > Self.maxQueuedChunks {
                 s.chunkQueue.removeFirst(s.chunkQueue.count - Self.maxQueuedChunks)
@@ -82,39 +172,37 @@ final class MeetingStreamingPartialSession {
         }
     }
 
-    /// Freeze the tail accumulated so far as belonging to the VAD chunk that
-    /// just rotated; it stays visible until `commitSegment()` clears it.
     func markSegmentBoundary() {
         state.withLock { s in
-            s.pendingCommitPrefixLength = s.accumulatedText.count
+            s.pendingCommitPrefixLengths.append(s.engineText.count)
         }
     }
 
-    /// The rotated chunk's committed line has landed — drop the frozen prefix
-    /// so the tail shows only text newer than the committed caption.
     func commitSegment() {
         let tail: String? = state.withLock { s in
             guard !s.isStopped, !s.didFail else { return nil }
-            guard s.pendingCommitPrefixLength > 0 else { return nil }
-            let dropCount = min(s.pendingCommitPrefixLength, s.accumulatedText.count)
-            s.accumulatedText = String(s.accumulatedText.dropFirst(dropCount))
-            s.pendingCommitPrefixLength = 0
-            return s.accumulatedText
+            guard !s.pendingCommitPrefixLengths.isEmpty else { return nil }
+            let prefixLength = s.pendingCommitPrefixLengths.removeFirst()
+            s.committedPrefixLength = max(
+                s.committedPrefixLength,
+                min(prefixLength, s.engineText.count)
+            )
+            return visibleTail(for: s)
         }
         if let tail {
             onPartialUpdate?(tail)
         }
     }
 
-    /// Pause: clear the tail and drop buffered audio. The stream state is kept —
-    /// a silence gap is harmless for display-only text.
+    /// Pause uses the existing VAD/chunk boundary as the durable commit point.
+    /// Buffered audio is dropped and the current engine prefix is hidden; the
+    /// cache-aware model state remains warm for a low-latency resume.
     func suspend() {
         state.withLock { s in
             s.isSuspended = true
-            s.sampleBuffer.removeAll()
-            s.chunkQueue.removeAll()
-            s.accumulatedText = ""
-            s.pendingCommitPrefixLength = 0
+            s.sampleBuffer.removeAll(keepingCapacity: true)
+            s.chunkQueue.removeAll(keepingCapacity: true)
+            s.committedPrefixLength = s.engineText.count
         }
         onPartialUpdate?("")
     }
@@ -130,9 +218,11 @@ final class MeetingStreamingPartialSession {
             s.isStopped = true
             s.sampleBuffer.removeAll()
             s.chunkQueue.removeAll()
-            s.accumulatedText = ""
-            s.pendingCommitPrefixLength = 0
+            s.engineText = ""
+            s.committedPrefixLength = 0
+            s.pendingCommitPrefixLengths.removeAll()
         }
+        Task { await engine.shutdown() }
     }
 
     private func drain() async {
@@ -146,37 +236,27 @@ final class MeetingStreamingPartialSession {
             }
             guard let chunk else { return }
 
-            var streamState: RNNTStreamState
-            if let existing = state.withLock({ $0.streamState }) {
-                streamState = existing
-            } else {
-                do {
-                    streamState = try await transcriber.makeStreamState()
-                } catch {
-                    goDormant(error: error)
-                    return
-                }
-            }
-
             do {
-                let newText = try await transcriber.transcribeChunk(samples: chunk, state: &streamState)
-                let updatedState = streamState
-                let tail: String? = state.withLock { s in
-                    guard !s.isStopped, !s.didFail else { return nil }
-                    s.streamState = updatedState
-                    guard !newText.isEmpty, !s.isSuspended else { return nil }
-                    // The frozen prefix stays in the published tail until its
-                    // committed caption lands (no flicker-to-empty at rotation).
-                    s.accumulatedText += newText
-                    return s.accumulatedText
-                }
-                if let tail {
-                    onPartialUpdate?(tail)
-                }
+                try await engine.process(samples: chunk)
             } catch {
                 goDormant(error: error)
                 return
             }
+        }
+    }
+
+    private func receiveEnginePartial(_ text: String) {
+        let tail: String? = state.withLock { s in
+            guard !s.isStopped, !s.isSuspended, !s.didFail else { return nil }
+            if text.count < s.committedPrefixLength {
+                s.committedPrefixLength = 0
+                s.pendingCommitPrefixLengths.removeAll()
+            }
+            s.engineText = text
+            return visibleTail(for: s)
+        }
+        if let tail {
+            onPartialUpdate?(tail)
         }
     }
 
@@ -186,11 +266,17 @@ final class MeetingStreamingPartialSession {
             s.isDraining = false
             s.sampleBuffer.removeAll()
             s.chunkQueue.removeAll()
-            s.accumulatedText = ""
-            s.pendingCommitPrefixLength = 0
-            s.streamState = nil
+            s.engineText = ""
+            s.committedPrefixLength = 0
+            s.pendingCommitPrefixLengths.removeAll()
         }
         fputs("[meeting-partials] \(label) session dormant after error: \(error)\n", stderr)
         onPartialUpdate?("")
+        Task { await engine.shutdown() }
+    }
+
+    private func visibleTail(for state: State) -> String {
+        let dropCount = min(state.committedPrefixLength, state.engineText.count)
+        return String(state.engineText.dropFirst(dropCount))
     }
 }

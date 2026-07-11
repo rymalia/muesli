@@ -16,43 +16,43 @@ a display-only layer for the in-flight segment: a dimmed, italic "tail" bubble
 per source that updates as speech happens and settles into the committed
 caption when the chunk transcribes.
 
-The partials engine is the in-repo Nemotron 3.5 streaming stack
-(`Nemotron35StreamingTranscriber` + per-session `RNNTStreamState`), running two
-independent sessions (mic "You", system "Others") that serialize through the
-one model actor. It runs regardless of the selected committed-transcript
-backend; partial text is provisional by definition and replaced at commit.
+The partials engine is FluidAudio's Parakeet Realtime EOU 120M model at its
+320 ms output cadence. Two independent cache-aware sessions process mic "You"
+and system "Others" audio. The selected meeting model still produces every
+durable caption; EOU text is provisional and replaced only when that existing
+VAD chunk finishes transcription.
 
 ### Gating
 
-- macOS 15+ (availability of the streaming stack)
-- Nemotron 3.5 model already downloaded and loaded — never triggers a download
+- Parakeet Realtime EOU explicitly downloaded from the Models screen
 - `enable_live_streaming_partials` config (default true) as a kill switch
 
 Without the model, the live view behaves exactly as before.
 
-### Non-goals (v1)
+### Non-goals
 
-- Word-by-word granularity — cadence is Nemotron's native 2.24s chunk.
-  Fast-follow path: Parakeet sliding-window partials (FluidAudio ships
-  `TdtDecoderState`, not yet wired in Muesli's file-based wrapper).
-- Replacing the chunk pipeline; live notes-on-demand (separate PR); in-meeting chat.
+- Replacing the VAD chunk pipeline, checkpoints, or selected meeting model.
+- Persisting provisional EOU output; live notes-on-demand; in-meeting chat.
+- Multilingual provisional captions. The dedicated EOU model is English-only;
+  the durable meeting pipeline retains its existing language support.
 
 ## Architecture
 
 - **`MeetingStreamingPartialSession`** (new): per-source buffer + serial drain.
   `enqueue([Float])` is called on `chunkRotationQueue` (cheap append under a
-  lock); a single-flight drain slices 35840-sample chunks and calls
-  `transcribeChunk(samples:state:&)` on the shared transcriber, firing
-  `onPartialUpdate` with the current tail text. `markSegmentBoundary()`
-  (from chunk rotation) snapshots the accumulated text length;
-  `commitSegment()` (when the committed line lands) drops that prefix so the
-  tail keeps only text newer than the committed chunk.
+  lock); a bounded single-flight drain feeds 320 ms intervals into one
+  `StreamingEouAsrManager` per source. `markSegmentBoundary()` (from VAD chunk
+  rotation) snapshots the cumulative EOU text length; `commitSegment()` (when
+  the existing chunk retires) hides that prefix so the tail keeps only text
+  newer than the committed caption.
 - **`MeetingSession`**: taps AEC'd mic floats and raw system floats (the same
   streams the VADs consume), feeds the two sessions, marks boundaries in the
   rotation handlers, commits next to `onChunkTranscribed`, tears down with the
   VAD controllers.
-- **`TranscriptionCoordinator.getLoadedNemotron35TranscriberIfAvailable()`**:
-  returns the transcriber only if already loaded.
+- **`MeetingLiveCaptionModelStore`**: checks, downloads, loads, and removes only
+  the 320 ms EOU model variant using FluidAudio's existing repository APIs.
+- **`ModelsView`**: gives the dedicated English live-caption model an explicit
+  download/delete lifecycle; meeting start never initiates a hidden download.
 - **AppState**: `liveMeetingPartialYou` / `liveMeetingPartialOthers`,
   owner-gated by the existing `liveMeetingTranscriptOwnerID`, cleared wherever
   the live transcript is cleared.
@@ -62,19 +62,20 @@ Without the model, the live view behaves exactly as before.
 
 ## Edge cases
 
-- Both sessions busy: calls interleave through one actor; worst-case partial
-  lag ~4.5s. Accepted for v1; measured in live verification.
+- Both sessions run independently so overlapping mic and system speech does not
+  serialize one source behind the other. The bounded queues drop stale
+  provisional intervals before they can delay recording or durable chunks.
 - Rotation→commit gap: the frozen prefix stays visible until commit (no
   flicker-to-empty).
-- Pause: tails clear, feeding stops; resume re-feeds (a silence gap in RNNT
-  state is harmless for display-only text).
+- Pause: the existing VAD rotations run first, tails clear, buffered EOU audio
+  drops, and resume keeps the model warm while hiding the pre-pause prefix.
 - Transcriber failure mid-meeting: the session logs once and goes dormant;
   committed path unaffected.
 
 ## Risks
 
-- ANE contention between two RNN-T sessions and the per-chunk batch backend —
-  measured with `scripts/monitor-memory.sh` during a long meeting; fallback is
-  mic-only partials.
+- ANE contention and memory use from two EOU managers plus the durable chunk
+  backend must be measured during a long meeting. Failure remains isolated to
+  the provisional session and falls back to committed captions.
 - Partial/committed text mismatch when the committed backend differs from
-  Nemotron — provisional text settles; inherent to the hybrid design.
+  Parakeet EOU — provisional text settles; inherent to the hybrid design.

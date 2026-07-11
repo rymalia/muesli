@@ -1,68 +1,114 @@
 import Foundation
+import FluidAudio
+import os
 import Testing
 @testable import MuesliNativeApp
 
 @Suite("Meeting streaming partial session")
 struct MeetingStreamingPartialSessionTests {
-    @available(macOS 15, *)
-    @Test("accumulates chunk text and publishes the growing tail")
-    func accumulatesAndPublishes() async throws {
-        let transcriber = ScriptedPartialTranscriber(script: ["one", " two"])
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "You")
-        let collector = PartialCollector()
-        session.onPartialUpdate = { collector.record($0) }
+    @Test("live caption model is ready only when every EOU artifact exists")
+    func modelAvailabilityRequiresEveryArtifact() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = MeetingLiveCaptionModelStore.modelDirectory(in: root)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        session.enqueue([Float](repeating: 0, count: 8))
-
-        #expect(await waitUntil { collector.latest == "one two" })
-        #expect(transcriber.makeStateCalls == 1)
-        #expect(transcriber.transcribeCalls == 2)
+        #expect(!MeetingLiveCaptionModelStore.isDownloaded(in: root))
+        for artifact in ModelNames.ParakeetEOU.requiredModels {
+            let url = directory.appendingPathComponent(artifact)
+            if artifact.hasSuffix(".mlmodelc") {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            } else {
+                try Data("{}".utf8).write(to: url)
+            }
+        }
+        #expect(MeetingLiveCaptionModelStore.isDownloaded(in: root))
     }
 
-    @available(macOS 15, *)
-    @Test("buffers sub-chunk sample batches until a full chunk is available")
-    func buffersSubChunkBatches() async throws {
-        let transcriber = ScriptedPartialTranscriber(script: ["hello"])
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 6, label: "You")
+    @Test("publishes cumulative Parakeet partials")
+    func accumulatesAndPublishes() async throws {
+        let engine = ScriptedPartialEngine(script: ["one", "one two"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        session.enqueue([Float](repeating: 0, count: 4))
-        #expect(await remainsTrue { transcriber.transcribeCalls == 0 })
+        session.enqueue(samples(chunkCount: 2))
 
-        session.enqueue([Float](repeating: 0, count: 2))
+        #expect(await waitUntil { collector.latest == "one two" })
+        #expect(engine.processCalls == 2)
+    }
+
+    @Test("buffers sub-chunk sample batches until a feed interval is available")
+    func buffersSubChunkBatches() async throws {
+        let engine = ScriptedPartialEngine(script: ["hello"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
+        let collector = PartialCollector()
+        session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
+
+        let firstCount = MeetingStreamingPartialSession.feedSamples - 1
+        session.enqueue([Float](repeating: 0, count: firstCount))
+        #expect(await remainsTrue { engine.processCalls == 0 })
+
+        session.enqueue([0])
         #expect(await waitUntil { collector.latest == "hello" })
     }
 
-    @available(macOS 15, *)
-    @Test("segment boundary freezes the prefix and commit drops it")
+    @Test("VAD boundary freezes the prefix and durable commit drops it")
     func boundaryAndCommit() async throws {
-        let transcriber = ScriptedPartialTranscriber(script: ["one two", " three"])
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "You")
+        let engine = ScriptedPartialEngine(script: ["one two", "one two three"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        session.enqueue([Float](repeating: 0, count: 4))
+        session.enqueue(samples(chunkCount: 1))
         #expect(await waitUntil { collector.latest == "one two" })
 
         session.markSegmentBoundary()
-        session.enqueue([Float](repeating: 0, count: 4))
-        // The frozen prefix stays visible until commit — no flicker-to-empty.
+        session.enqueue(samples(chunkCount: 1))
         #expect(await waitUntil { collector.latest == "one two three" })
 
         session.commitSegment()
         #expect(await waitUntil { collector.latest == " three" })
     }
 
-    @available(macOS 15, *)
-    @Test("commit without a marked boundary publishes nothing")
-    func commitWithoutBoundaryIsNoOp() async throws {
-        let transcriber = ScriptedPartialTranscriber(script: ["one"])
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "You")
+    @Test("concurrent durable chunks retire their VAD boundaries in order")
+    func queuedBoundariesCommitInOrder() async throws {
+        let engine = ScriptedPartialEngine(script: ["one", "one two", "one two three"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        session.enqueue([Float](repeating: 0, count: 4))
+        session.enqueue(samples(chunkCount: 1))
+        #expect(await waitUntil { collector.latest == "one" })
+        session.markSegmentBoundary()
+
+        session.enqueue(samples(chunkCount: 1))
+        #expect(await waitUntil { collector.latest == "one two" })
+        session.markSegmentBoundary()
+
+        session.enqueue(samples(chunkCount: 1))
+        #expect(await waitUntil { collector.latest == "one two three" })
+
+        session.commitSegment()
+        #expect(await waitUntil { collector.latest == " two three" })
+        session.commitSegment()
+        #expect(await waitUntil { collector.latest == " three" })
+    }
+
+    @Test("commit without a VAD boundary publishes nothing")
+    func commitWithoutBoundaryIsNoOp() async throws {
+        let engine = ScriptedPartialEngine(script: ["one"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
+        let collector = PartialCollector()
+        session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
+
+        session.enqueue(samples(chunkCount: 1))
         #expect(await waitUntil { collector.latest == "one" })
         let updatesBefore = collector.all.count
 
@@ -70,205 +116,178 @@ struct MeetingStreamingPartialSessionTests {
         #expect(await remainsTrue { collector.all.count == updatesBefore })
     }
 
-    @available(macOS 15, *)
-    @Test("suspend clears the tail and drops audio; resume re-enables")
+    @Test("pause hides prior text and resume publishes only new speech")
     func suspendAndResume() async throws {
-        let transcriber = ScriptedPartialTranscriber(script: ["one", "two"])
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "You")
+        let engine = ScriptedPartialEngine(script: ["one", "one two"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        session.enqueue([Float](repeating: 0, count: 4))
+        session.enqueue(samples(chunkCount: 1))
         #expect(await waitUntil { collector.latest == "one" })
 
         session.suspend()
         #expect(await waitUntil { collector.latest == "" })
 
-        session.enqueue([Float](repeating: 0, count: 4))
-        #expect(await remainsTrue { transcriber.transcribeCalls == 1 })
+        session.enqueue(samples(chunkCount: 1))
+        #expect(await remainsTrue { engine.processCalls == 1 })
 
         session.resume()
-        session.enqueue([Float](repeating: 0, count: 4))
-        #expect(await waitUntil { collector.latest == "two" })
+        session.enqueue(samples(chunkCount: 1))
+        #expect(await waitUntil { collector.latest == " two" })
     }
 
-    @available(macOS 15, *)
-    @Test("a transcription failure clears the tail and goes dormant")
+    @Test("an EOU inference failure clears the tail and goes dormant")
     func failureGoesDormant() async throws {
-        let transcriber = ThrowingPartialTranscriber()
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "Others")
+        let engine = ThrowingPartialEngine()
+        let session = MeetingStreamingPartialSession(engine: engine, label: "Others")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        session.enqueue([Float](repeating: 0, count: 4))
+        session.enqueue(samples(chunkCount: 1))
         #expect(await waitUntil { collector.latest == "" })
-        let callsAfterFailure = transcriber.transcribeCalls
+        let callsAfterFailure = engine.processCalls
 
-        session.enqueue([Float](repeating: 0, count: 8))
-        #expect(await remainsTrue { transcriber.transcribeCalls == callsAfterFailure })
+        session.enqueue(samples(chunkCount: 2))
+        #expect(await remainsTrue { engine.processCalls == callsAfterFailure })
     }
 
-    @available(macOS 15, *)
     @Test("stop drops buffered audio and suppresses further updates")
     func stopSuppressesUpdates() async throws {
-        let transcriber = ScriptedPartialTranscriber(script: ["one", "two"])
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "You")
+        let engine = ScriptedPartialEngine(script: ["one", "one two"])
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        session.enqueue([Float](repeating: 0, count: 4))
+        session.enqueue(samples(chunkCount: 1))
         #expect(await waitUntil { collector.latest == "one" })
 
         session.stop()
         let updatesBefore = collector.all.count
-        session.enqueue([Float](repeating: 0, count: 8))
-        #expect(await remainsTrue { collector.all.count == updatesBefore && transcriber.transcribeCalls == 1 })
+        session.enqueue(samples(chunkCount: 2))
+        #expect(await remainsTrue { collector.all.count == updatesBefore && engine.processCalls == 1 })
     }
 
-    @available(macOS 15, *)
-    @Test("backpressure keeps only the freshest queued chunks")
+    @Test("backpressure keeps only the freshest EOU feed intervals")
     func backpressureDropsOldestChunks() async throws {
-        let transcriber = EchoPartialTranscriber()
-        let session = MeetingStreamingPartialSession(transcriber: transcriber, chunkSamples: 4, label: "You")
+        let engine = EchoPartialEngine()
+        let session = MeetingStreamingPartialSession(engine: engine, label: "You")
         let collector = PartialCollector()
         session.onPartialUpdate = { collector.record($0) }
+        await session.connect()
 
-        // One enqueue call delivering 7 full chunks: slicing and capping happen
-        // under the same lock acquisition, before the drain task can start, so
-        // only the freshest maxQueuedChunks survive deterministically.
-        var samples: [Float] = []
+        var input: [Float] = []
         for chunkIndex in 0..<7 {
-            samples.append(contentsOf: [Float](repeating: Float(chunkIndex), count: 4))
+            input.append(contentsOf: [Float](
+                repeating: Float(chunkIndex),
+                count: MeetingStreamingPartialSession.feedSamples
+            ))
         }
-        session.enqueue(samples)
+        session.enqueue(input)
 
         #expect(await waitUntil { collector.latest == " c4 c5 c6" })
-        #expect(transcriber.transcribeCalls == MeetingStreamingPartialSession.maxQueuedChunks)
+        #expect(engine.processCalls == MeetingStreamingPartialSession.maxQueuedChunks)
     }
 }
 
-// MARK: - Test doubles
-
-@available(macOS 15, *)
-private final class ScriptedPartialTranscriber: NemotronStreamingTranscribing, @unchecked Sendable {
-    private let lock = NSLock()
-    private var script: [String]
-    private var _makeStateCalls = 0
-    private var _transcribeCalls = 0
+private final class ScriptedPartialEngine: MeetingStreamingPartialEngine, @unchecked Sendable {
+    private struct State {
+        var script: [String]
+        var handler: (@Sendable (String) -> Void)?
+        var processCalls = 0
+        var shutdownCalls = 0
+    }
+    private let state: OSAllocatedUnfairLock<State>
 
     init(script: [String]) {
-        self.script = script
+        state = OSAllocatedUnfairLock(initialState: State(script: script))
     }
 
-    var makeStateCalls: Int {
-        lock.lock(); defer { lock.unlock() }
-        return _makeStateCalls
+    var processCalls: Int { state.withLock { $0.processCalls } }
+
+    func setPartialHandler(_ handler: @escaping @Sendable (String) -> Void) async {
+        state.withLock { $0.handler = handler }
     }
 
-    var transcribeCalls: Int {
-        lock.lock(); defer { lock.unlock() }
-        return _transcribeCalls
+    func process(samples: [Float]) async throws {
+        let update: (String, (@Sendable (String) -> Void)?)? = state.withLock { s in
+            s.processCalls += 1
+            guard !s.script.isEmpty else { return nil }
+            return (s.script.removeFirst(), s.handler)
+        }
+        if let update {
+            update.1?(update.0)
+        }
     }
 
-    func makeStreamState() async throws -> RNNTStreamState {
-        lock.lock()
-        _makeStateCalls += 1
-        lock.unlock()
-        return try makePartialTestStreamState()
-    }
-
-    func transcribeChunk(samples: [Float], state: inout RNNTStreamState) async throws -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        _transcribeCalls += 1
-        guard !script.isEmpty else { return "" }
-        return script.removeFirst()
+    func shutdown() async {
+        state.withLock { $0.shutdownCalls += 1 }
     }
 }
 
-@available(macOS 15, *)
-private final class ThrowingPartialTranscriber: NemotronStreamingTranscribing, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _transcribeCalls = 0
+private final class ThrowingPartialEngine: MeetingStreamingPartialEngine, @unchecked Sendable {
+    private let calls = OSAllocatedUnfairLock(initialState: 0)
 
-    var transcribeCalls: Int {
-        lock.lock(); defer { lock.unlock() }
-        return _transcribeCalls
+    var processCalls: Int { calls.withLock { $0 } }
+
+    func setPartialHandler(_ handler: @escaping @Sendable (String) -> Void) async {}
+
+    func process(samples: [Float]) async throws {
+        calls.withLock { $0 += 1 }
+        throw NSError(domain: "ThrowingPartialEngine", code: 1)
     }
 
-    func makeStreamState() async throws -> RNNTStreamState {
-        try makePartialTestStreamState()
+    func shutdown() async {}
+}
+
+private final class EchoPartialEngine: MeetingStreamingPartialEngine, @unchecked Sendable {
+    private struct State {
+        var handler: (@Sendable (String) -> Void)?
+        var processCalls = 0
+        var text = ""
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var processCalls: Int { state.withLock { $0.processCalls } }
+
+    func setPartialHandler(_ handler: @escaping @Sendable (String) -> Void) async {
+        state.withLock { $0.handler = handler }
     }
 
-    func transcribeChunk(samples: [Float], state: inout RNNTStreamState) async throws -> String {
-        lock.lock()
-        _transcribeCalls += 1
-        lock.unlock()
-        throw NSError(domain: "ThrowingPartialTranscriber", code: 1)
+    func process(samples: [Float]) async throws {
+        let update = state.withLock { s -> (String, (@Sendable (String) -> Void)?) in
+            s.processCalls += 1
+            let marker = samples.first.map { Int($0) } ?? -1
+            s.text += " c\(marker)"
+            return (s.text, s.handler)
+        }
+        update.1?(update.0)
     }
+
+    func shutdown() async {}
 }
 
 private final class PartialCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var updates: [String] = []
+    private let updates = OSAllocatedUnfairLock(initialState: [String]())
 
     func record(_ text: String) {
-        lock.lock()
-        updates.append(text)
-        lock.unlock()
+        updates.withLock { $0.append(text) }
     }
 
-    var all: [String] {
-        lock.lock(); defer { lock.unlock() }
-        return updates
-    }
-
-    var latest: String? {
-        all.last
-    }
+    var all: [String] { updates.withLock { $0 } }
+    var latest: String? { all.last }
 }
 
-/// Minimal caches — the fake transcribers never read them.
-private func makePartialTestStreamState() throws -> RNNTStreamState {
-    try nemotronMakeStreamState(
-        config: NemotronRNNTConfig(
-            chunkSamples: 4,
-            cacheChannelFrames: 1,
-            totalMelFrames: 1,
-            encoderDim: 1,
-            decoderHiddenSize: 1,
-            blankTokenId: 1,
-            promptId: nil,
-            stripAngleBracketTags: false
-        )
+private func samples(chunkCount: Int, marker: Float = 0) -> [Float] {
+    [Float](
+        repeating: marker,
+        count: MeetingStreamingPartialSession.feedSamples * chunkCount
     )
 }
 
-@available(macOS 15, *)
-private final class EchoPartialTranscriber: NemotronStreamingTranscribing, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _transcribeCalls = 0
-
-    var transcribeCalls: Int {
-        lock.lock(); defer { lock.unlock() }
-        return _transcribeCalls
-    }
-
-    func makeStreamState() async throws -> RNNTStreamState {
-        try makePartialTestStreamState()
-    }
-
-    func transcribeChunk(samples: [Float], state: inout RNNTStreamState) async throws -> String {
-        lock.lock()
-        _transcribeCalls += 1
-        lock.unlock()
-        let marker = samples.first.map { Int($0) } ?? -1
-        return " c\(marker)"
-    }
-}
-
-/// Bounded multi-sample check that `condition` holds for the whole window —
-/// replaces single fixed-sleep negative assertions, which are flake-prone.
 private func remainsTrue(
     for duration: TimeInterval = 0.2,
     _ condition: @escaping @Sendable () -> Bool
