@@ -152,11 +152,11 @@ final class FloatingMeetingTranscriptPanelController {
     }
 
     @discardableResult
-    func handleClick(at screenPoint: NSPoint) -> Bool {
-        guard let screenFrame,
+    func handleClick(atWindowPoint windowPoint: NSPoint) -> Bool {
+        guard isVisible, let hostingView,
               let interaction = FloatingMeetingTranscriptInteraction.action(
-                at: screenPoint,
-                in: screenFrame
+                at: hostingView.convert(windowPoint, from: nil),
+                in: hostingView.bounds
               ) else { return false }
 
         switch interaction {

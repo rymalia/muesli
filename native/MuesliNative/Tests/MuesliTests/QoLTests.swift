@@ -242,9 +242,9 @@ struct FloatingMeetingTranscriptTests {
             backing: .buffered,
             defer: false
         )
-        var receivedMouseDown = false
-        panel.leftMouseDownHandler = { _ in
-            receivedMouseDown = true
+        var receivedMouseDown: NSPoint?
+        panel.leftMouseDownHandler = { point in
+            receivedMouseDown = point
             return true
         }
         let event = NSEvent.mouseEvent(
@@ -266,7 +266,7 @@ struct FloatingMeetingTranscriptTests {
         #expect(!panel.canBecomeMain)
         #expect(!panel.becomesKeyOnlyIfNeeded)
         #expect(!panel.styleMask.contains(.nonactivatingPanel))
-        #expect(receivedMouseDown)
+        #expect(receivedMouseDown == NSPoint(x: 20, y: 20))
     }
 
     @Test("panel prefers the open side and remains inside the screen")
