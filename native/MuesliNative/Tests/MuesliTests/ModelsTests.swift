@@ -557,6 +557,7 @@ struct AppConfigTests {
         #expect(config.enableScreenContext == false)
         #expect(config.enableDictationOCRContext == false)
         #expect(config.enableLiveStreamingPartials == true)
+        #expect(config.resolvedMeetingLiveCaptionBackend == .parakeetRealtimeEOU)
         #expect(config.showMeetingTranscriptOnIndicatorHover == true)
         #expect(config.dictationHotkey == .default)
         #expect(config.computerUseHotkey == .computerUseDefault)
@@ -772,6 +773,7 @@ struct AppConfigTests {
         config.enableScreenContext = true
         config.enableDictationOCRContext = true
         config.enableLiveStreamingPartials = false
+        config.meetingLiveCaptionBackend = MeetingLiveCaptionBackend.nemotron35.rawValue
         config.showMeetingTranscriptOnIndicatorHover = false
         config.contributionPromptNextWordCount = 31_000
         config.contributionPromptNextMeetingCount = 75
@@ -845,6 +847,7 @@ struct AppConfigTests {
         #expect(decoded.enableScreenContext == true)
         #expect(decoded.enableDictationOCRContext == true)
         #expect(decoded.enableLiveStreamingPartials == false)
+        #expect(decoded.resolvedMeetingLiveCaptionBackend == .nemotron35)
         #expect(decoded.showMeetingTranscriptOnIndicatorHover == false)
         #expect(decoded.contributionPromptNextWordCount == 31_000)
         #expect(decoded.contributionPromptNextMeetingCount == 75)
@@ -993,6 +996,7 @@ struct AppConfigTests {
         #expect(config.enableScreenContext == false)
         #expect(config.enableDictationOCRContext == false)
         #expect(config.enableLiveStreamingPartials == true)
+        #expect(config.resolvedMeetingLiveCaptionBackend == .parakeetRealtimeEOU)
         #expect(config.showMeetingTranscriptOnIndicatorHover == true)
     }
 

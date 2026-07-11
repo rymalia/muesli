@@ -171,7 +171,15 @@ struct ModelsView: View {
             ForEach(BackendOption.streaming, id: \.model) { option in
                 modelCard(
                     option: option,
-                    logo: logoForBackend(option)
+                    logo: logoForBackend(option),
+                    isActive: appState.config.enableLiveStreamingPartials
+                        && appState.config.resolvedMeetingLiveCaptionBackend == .nemotron35,
+                    onSetActive: {
+                        controller.updateConfig {
+                            $0.meetingLiveCaptionBackend = MeetingLiveCaptionBackend.nemotron35.rawValue
+                            $0.enableLiveStreamingPartials = true
+                        }
+                    }
                 )
             }
 
@@ -180,7 +188,9 @@ struct ModelsView: View {
     }
 
     private var liveCaptionModelCard: some View {
-        let isActive = isLiveCaptionModelDownloaded && appState.config.enableLiveStreamingPartials
+        let isActive = isLiveCaptionModelDownloaded
+            && appState.config.enableLiveStreamingPartials
+            && appState.config.resolvedMeetingLiveCaptionBackend == .parakeetRealtimeEOU
 
         return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
             HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
@@ -246,7 +256,10 @@ struct ModelsView: View {
                 } else if isLiveCaptionModelDownloaded {
                     if !isActive {
                         Button("Set Active") {
-                            controller.updateConfig { $0.enableLiveStreamingPartials = true }
+                            controller.updateConfig {
+                                $0.meetingLiveCaptionBackend = MeetingLiveCaptionBackend.parakeetRealtimeEOU.rawValue
+                                $0.enableLiveStreamingPartials = true
+                            }
                         }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .medium))
@@ -675,7 +688,13 @@ struct ModelsView: View {
     }
 
     @ViewBuilder
-    private func actionButtons(for option: BackendOption, isActive: Bool, isDownloaded: Bool, isDownloading: Bool) -> some View {
+    private func actionButtons(
+        for option: BackendOption,
+        isActive: Bool,
+        isDownloaded: Bool,
+        isDownloading: Bool,
+        onSetActive: (() -> Void)? = nil
+    ) -> some View {
         HStack(spacing: MuesliTheme.spacing8) {
             if isDownloading {
                 Button("Cancel") {
@@ -691,7 +710,11 @@ struct ModelsView: View {
             } else if isDownloaded {
                 if !isActive {
                     Button("Set Active") {
-                        controller.selectBackend(option)
+                        if let onSetActive {
+                            onSetActive()
+                        } else {
+                            controller.selectBackend(option)
+                        }
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .medium))
@@ -726,8 +749,13 @@ struct ModelsView: View {
         }
     }
 
-    private func modelCard(option: BackendOption, logo: String? = nil) -> some View {
-        let isActive = appState.selectedBackend == option
+    private func modelCard(
+        option: BackendOption,
+        logo: String? = nil,
+        isActive activeOverride: Bool? = nil,
+        onSetActive: (() -> Void)? = nil
+    ) -> some View {
+        let isActive = activeOverride ?? (appState.selectedBackend == option)
         let isDownloaded = downloadedModels.contains(option.model)
         let isDownloading = downloadingModels.contains(option.model)
         let progress = downloadProgress[option.model] ?? 0
@@ -863,7 +891,13 @@ struct ModelsView: View {
                 }
             }
 
-            actionButtons(for: option, isActive: isActive, isDownloaded: isDownloaded, isDownloading: isDownloading)
+            actionButtons(
+                for: option,
+                isActive: isActive,
+                isDownloaded: isDownloaded,
+                isDownloading: isDownloading,
+                onSetActive: onSetActive
+            )
         }
         .padding(MuesliTheme.spacing16)
         .background(MuesliTheme.backgroundRaised)
@@ -1155,6 +1189,10 @@ struct ModelsView: View {
     }
 
     private func deleteModel(_ option: BackendOption) {
+        if option == .nemotron35Multilingual,
+           appState.config.resolvedMeetingLiveCaptionBackend == .nemotron35 {
+            controller.updateConfig { $0.enableLiveStreamingPartials = false }
+        }
         if appState.selectedBackend == option {
             let fallback = downloadedModels
                 .compactMap { model in BackendOption.all.first(where: { $0.model == model && $0 != option }) }

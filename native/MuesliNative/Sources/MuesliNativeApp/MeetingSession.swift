@@ -301,32 +301,34 @@ final class MeetingSession {
         setupStreamingPartialsIfAvailable()
     }
 
-    /// Display-only streaming partials (#99). Parakeet EOU consumes the same
-    /// cleaned mic and raw system streams as the existing VAD/chunk pipeline;
+    /// Display-only streaming partials (#99). The selected live-caption model
+    /// consumes the same cleaned mic and raw system streams as the VAD pipeline;
     /// VAD chunk transcription remains the durable source of truth.
     private func setupStreamingPartialsIfAvailable() {
         guard config.enableLiveStreamingPartials else { return }
-        guard MeetingLiveCaptionModelStore.isDownloaded() else {
-            fputs("[meeting-partials] Parakeet EOU model not downloaded; using committed live captions only\n", stderr)
+        let backend = config.resolvedMeetingLiveCaptionBackend
+        guard backend.isDownloaded else {
+            fputs("[meeting-partials] \(backend.label) not downloaded; using committed live captions only\n", stderr)
             return
         }
         Task { [weak self] in
             guard let self else { return }
-            var micEngine: MeetingStreamingPartialEngine?
             do {
-                let loadedMicEngine = try await MeetingLiveCaptionModelStore.makeEngine(label: "You")
-                micEngine = loadedMicEngine
+                let engines = try await MeetingLiveCaptionModelStore.makeEngines(
+                    backend: backend,
+                    nemotronPromptId: self.config.resolvedNemotron35Language.promptId
+                )
                 guard self.chunkRotationQueue.sync(execute: { self.isRecording }),
                       self.partialSessionsStorage.withLock({ !$0.isShutDown }) else {
-                    await loadedMicEngine.shutdown()
+                    await engines.mic.shutdown()
+                    await engines.system.shutdown()
                     return
                 }
-                let systemEngine = try await MeetingLiveCaptionModelStore.makeEngine(label: "Others")
 
-                let mic = MeetingStreamingPartialSession(engine: loadedMicEngine, label: "You")
+                let mic = MeetingStreamingPartialSession(engine: engines.mic, label: "You")
                 mic.onPartialUpdate = { [weak self] text in self?.onPartialTranscript?("You", text) }
                 await mic.connect()
-                let system = MeetingStreamingPartialSession(engine: systemEngine, label: "Others")
+                let system = MeetingStreamingPartialSession(engine: engines.system, label: "Others")
                 system.onPartialUpdate = { [weak self] text in self?.onPartialTranscript?("Others", text) }
                 await system.connect()
 
@@ -347,12 +349,9 @@ final class MeetingSession {
                     system.stop()
                     return
                 }
-                fputs("[meeting-partials] Parakeet EOU partials active for mic and system audio\n", stderr)
+                fputs("[meeting-partials] \(backend.label) active for mic and system audio\n", stderr)
             } catch {
-                if let micEngine {
-                    await micEngine.shutdown()
-                }
-                fputs("[meeting-partials] Parakeet EOU setup failed: \(error)\n", stderr)
+                fputs("[meeting-partials] \(backend.label) setup failed: \(error)\n", stderr)
             }
         }
     }

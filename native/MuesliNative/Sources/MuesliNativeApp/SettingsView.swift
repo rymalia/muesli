@@ -86,7 +86,7 @@ struct SettingsView: View {
     @State private var selectedPane: SettingsPane = .general
     @State private var downloadedBackendOptions: [BackendOption] = []
     @State private var downloadedPostProcOptions: [PostProcessorOption] = []
-    @State private var isLiveCaptionModelDownloaded = false
+    @State private var downloadedMeetingLiveCaptionBackends: [MeetingLiveCaptionBackend] = []
     @State private var dictationInputDevices: [AudioInputDeviceInfo] = []
     @State private var permissionPollTimer: Timer?
     @State private var isCleanupPromptManagerPresented = false
@@ -128,6 +128,15 @@ struct SettingsView: View {
 
     private var meetingBackendOptions: [BackendOption] {
         downloadedBackendOptions.filter(\.supportsMeetingTranscription)
+    }
+
+    private var selectedMeetingLiveCaptionLabel: String {
+        let selected = appState.config.resolvedMeetingLiveCaptionBackend
+        guard appState.config.enableLiveStreamingPartials,
+              downloadedMeetingLiveCaptionBackends.contains(selected) else {
+            return "Off"
+        }
+        return selected.label
     }
 
     private var selectedMeetingBackendLabel: String {
@@ -282,7 +291,7 @@ struct SettingsView: View {
         controller.refreshMeetingTranscriptionSelectionForAvailability()
         downloadedBackendOptions = BackendOption.downloaded
         downloadedPostProcOptions = PostProcessorOption.downloaded
-        isLiveCaptionModelDownloaded = MeetingLiveCaptionModelStore.isDownloaded()
+        downloadedMeetingLiveCaptionBackends = MeetingLiveCaptionBackend.allCases.filter(\.isDownloaded)
     }
 
     private func refreshDictationInputDevices() {
@@ -658,15 +667,21 @@ struct SettingsView: View {
                 description: "Provides provisional captions during a meeting. The meeting model remains the final transcript source.",
                 controlWidth: meetingControlWidth
             ) {
-                if isLiveCaptionModelDownloaded {
+                if !downloadedMeetingLiveCaptionBackends.isEmpty {
                     settingsMenu(
-                        selection: appState.config.enableLiveStreamingPartials
-                            ? MeetingLiveCaptionModelStore.label
-                            : "Off",
-                        options: [MeetingLiveCaptionModelStore.label, "Off"]
+                        selection: selectedMeetingLiveCaptionLabel,
+                        options: downloadedMeetingLiveCaptionBackends.map(\.label) + ["Off"]
                     ) { label in
+                        guard label != "Off" else {
+                            controller.updateConfig { $0.enableLiveStreamingPartials = false }
+                            return
+                        }
+                        guard let backend = downloadedMeetingLiveCaptionBackends.first(where: { $0.label == label }) else {
+                            return
+                        }
                         controller.updateConfig {
-                            $0.enableLiveStreamingPartials = label == MeetingLiveCaptionModelStore.label
+                            $0.meetingLiveCaptionBackend = backend.rawValue
+                            $0.enableLiveStreamingPartials = true
                         }
                     }
                 } else {

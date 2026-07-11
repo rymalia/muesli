@@ -287,6 +287,36 @@ enum Nemotron35Language: String, CaseIterable, Codable, Sendable {
     }
 }
 
+enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
+    case parakeetRealtimeEOU = "parakeet_realtime_eou"
+    case nemotron35 = "nemotron35"
+
+    static let defaultBackend: Self = .parakeetRealtimeEOU
+
+    var label: String {
+        switch self {
+        case .parakeetRealtimeEOU: return MeetingLiveCaptionModelStore.label
+        case .nemotron35: return BackendOption.nemotron35Multilingual.label
+        }
+    }
+
+    var isDownloaded: Bool {
+        switch self {
+        case .parakeetRealtimeEOU: return MeetingLiveCaptionModelStore.isDownloaded()
+        case .nemotron35:
+            guard #available(macOS 15, *) else { return false }
+            return BackendOption.nemotron35Multilingual.isDownloaded
+        }
+    }
+
+    static func resolved(_ rawValue: String?) -> Self {
+        guard let rawValue, let backend = Self(rawValue: rawValue) else {
+            return defaultBackend
+        }
+        return backend
+    }
+}
+
 struct SummaryModelPreset {
     let id: String
     let label: String
@@ -1037,9 +1067,9 @@ struct AppConfig: Codable {
     var enableScreenContext: Bool = false
     var enableDictationOCRContext: Bool = false
     var useCoreAudioTap: Bool = true
-    /// Display-only Parakeet EOU partials in the live meeting transcript. The
-    /// dedicated model is managed explicitly from the Models screen.
+    /// Display-only streaming partials in the live meeting transcript.
     var enableLiveStreamingPartials: Bool = true
+    var meetingLiveCaptionBackend: String = MeetingLiveCaptionBackend.defaultBackend.rawValue
     /// Reveals a compact live transcript beside the meeting waveform while the
     /// pointer is over either floating surface.
     var showMeetingTranscriptOnIndicatorHover: Bool = true
@@ -1154,6 +1184,7 @@ struct AppConfig: Codable {
         case enableDictationOCRContext = "enable_dictation_ocr_context"
         case useCoreAudioTap = "use_core_audio_tap"
         case enableLiveStreamingPartials = "enable_live_streaming_partials"
+        case meetingLiveCaptionBackend = "meeting_live_caption_backend"
         case showMeetingTranscriptOnIndicatorHover = "show_meeting_transcript_on_indicator_hover"
         case meetingHookEnabled = "meeting_hook_enabled"
         case meetingHookPath = "meeting_hook_path"
@@ -1326,6 +1357,9 @@ struct AppConfig: Codable {
         enableDictationOCRContext = (try? c.decode(Bool.self, forKey: .enableDictationOCRContext)) ?? defaults.enableDictationOCRContext
         useCoreAudioTap = (try? c.decode(Bool.self, forKey: .useCoreAudioTap)) ?? defaults.useCoreAudioTap
         enableLiveStreamingPartials = (try? c.decode(Bool.self, forKey: .enableLiveStreamingPartials)) ?? defaults.enableLiveStreamingPartials
+        meetingLiveCaptionBackend = MeetingLiveCaptionBackend
+            .resolved(try? c.decode(String.self, forKey: .meetingLiveCaptionBackend))
+            .rawValue
         showMeetingTranscriptOnIndicatorHover = (try? c.decode(Bool.self, forKey: .showMeetingTranscriptOnIndicatorHover)) ?? defaults.showMeetingTranscriptOnIndicatorHover
         meetingHookEnabled = (try? c.decode(Bool.self, forKey: .meetingHookEnabled)) ?? defaults.meetingHookEnabled
         meetingHookPath = (try? c.decode(String.self, forKey: .meetingHookPath)) ?? defaults.meetingHookPath
@@ -1354,6 +1388,10 @@ struct AppConfig: Codable {
 
     var resolvedNemotron35Language: Nemotron35Language {
         Nemotron35Language.resolved(nemotron35Language)
+    }
+
+    var resolvedMeetingLiveCaptionBackend: MeetingLiveCaptionBackend {
+        MeetingLiveCaptionBackend.resolved(meetingLiveCaptionBackend)
     }
 
     var resolvedOnboardingUseCase: OnboardingUseCase {

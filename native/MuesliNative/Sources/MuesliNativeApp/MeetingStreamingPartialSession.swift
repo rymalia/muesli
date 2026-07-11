@@ -51,6 +51,38 @@ enum MeetingLiveCaptionModelStore {
         try await engine.loadModels(from: modelDirectory())
         return engine
     }
+
+    static func makeEngines(
+        backend: MeetingLiveCaptionBackend,
+        nemotronPromptId: Int32
+    ) async throws -> (mic: MeetingStreamingPartialEngine, system: MeetingStreamingPartialEngine) {
+        switch backend {
+        case .parakeetRealtimeEOU:
+            let mic = try await makeEngine(label: "You")
+            do {
+                return (mic, try await makeEngine(label: "Others"))
+            } catch {
+                await mic.shutdown()
+                throw error
+            }
+        case .nemotron35:
+            guard #available(macOS 15, *) else {
+                throw NSError(
+                    domain: "MeetingLiveCaptions",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Nemotron 3.5 requires macOS 15 or later."]
+                )
+            }
+            let transcriber = Nemotron35StreamingTranscriber()
+            await transcriber.setPromptId(nemotronPromptId)
+            try await transcriber.loadModels()
+            let mic = Nemotron35MeetingPartialEngine(transcriber: transcriber, label: "You")
+            let system = Nemotron35MeetingPartialEngine(transcriber: transcriber, label: "Others")
+            try await mic.prepare()
+            try await system.prepare()
+            return (mic, system)
+        }
+    }
 }
 
 protocol MeetingStreamingPartialEngine: AnyObject, Sendable {
@@ -100,6 +132,55 @@ private actor ParakeetEOUMeetingPartialEngine: MeetingStreamingPartialEngine {
     func shutdown() async {
         await manager.cleanup()
         fputs("[meeting-partials] \(label) Parakeet EOU session stopped\n", stderr)
+    }
+}
+
+@available(macOS 15, *)
+private actor Nemotron35MeetingPartialEngine: MeetingStreamingPartialEngine {
+    private let transcriber: Nemotron35StreamingTranscriber
+    private let label: String
+    private var streamState: Nemotron35StreamingTranscriber.StreamState?
+    private var sampleBuffer: [Float] = []
+    private var transcript = ""
+    private var partialHandler: (@Sendable (String) -> Void)?
+
+    init(transcriber: Nemotron35StreamingTranscriber, label: String) {
+        self.transcriber = transcriber
+        self.label = label
+    }
+
+    func prepare() async throws {
+        streamState = try await transcriber.makeStreamState()
+    }
+
+    func setPartialHandler(_ handler: @escaping @Sendable (String) -> Void) async {
+        partialHandler = handler
+    }
+
+    func process(samples: [Float]) async throws {
+        guard !samples.isEmpty else { return }
+        sampleBuffer.append(contentsOf: samples)
+        let chunkSize = transcriber.chunkSamples
+        while sampleBuffer.count >= chunkSize {
+            let chunk = Array(sampleBuffer.prefix(chunkSize))
+            sampleBuffer.removeFirst(chunkSize)
+            guard var state = streamState else {
+                throw Nemotron35StreamingTranscriber.TranscriberError.notLoaded
+            }
+            let text = try await transcriber.transcribeChunk(samples: chunk, state: &state)
+            streamState = state
+            guard !text.isEmpty else { continue }
+            transcript += text
+            partialHandler?(transcript)
+        }
+    }
+
+    func shutdown() async {
+        sampleBuffer.removeAll()
+        transcript = ""
+        streamState = nil
+        partialHandler = nil
+        fputs("[meeting-partials] \(label) Nemotron 3.5 session stopped\n", stderr)
     }
 }
 
