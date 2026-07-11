@@ -82,8 +82,32 @@ final class FloatingMeetingTranscriptModel {
 }
 
 private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    var onDismiss: (() -> Void)?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        dismissHitRegion.contains(point) ? self : super.hitTest(point)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard dismissHitRegion.contains(point) else {
+            super.mouseDown(with: event)
+            return
+        }
+        onDismiss?()
+    }
+
+    private var dismissHitRegion: NSRect {
+        NSRect(
+            x: max(0, bounds.maxX - 80),
+            y: max(0, bounds.maxY - 42),
+            width: 40,
+            height: 42
+        )
     }
 }
 
@@ -164,6 +188,7 @@ final class FloatingMeetingTranscriptPanelController {
                 onDismiss: onDismiss
             )
         )
+        hostingView.onDismiss = onDismiss
         hostingView.wantsLayer = true
         return hostingView
     }

@@ -74,6 +74,22 @@ struct TranscriptReconcilerTests {
         #expect(reconciled.systemSegments.count == 3)
     }
 
+    @Test("keeps Devanagari system turns")
+    func keepsDevanagariSystemTurns() {
+        let system = [
+            SpeechSegment(start: 2.0, end: 4.0, text: "रिश्ते में संवाद जरूरी है")
+        ]
+
+        let reconciled = TranscriptReconciler.reconcile(
+            micTurns: [],
+            systemSegments: system,
+            diarizationSegments: nil
+        )
+
+        #expect(reconciled.systemSegments.count == 1)
+        #expect(reconciled.systemSegments[0].text == "रिश्ते में संवाद जरूरी है")
+    }
+
     private func makeDiarSeg(speakerId: String, start: Float, end: Float) -> TimedSpeakerSegment {
         TimedSpeakerSegment(
             speakerId: speakerId,
