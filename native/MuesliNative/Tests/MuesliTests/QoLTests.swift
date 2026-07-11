@@ -214,6 +214,24 @@ struct IndicatorFrameSizeTests {
 
 @Suite("Floating meeting transcript")
 struct FloatingMeetingTranscriptTests {
+    @Test("overlay click regions route dismiss, copy, open, and outside clicks")
+    func overlayClickRouting() {
+        let frame = NSRect(x: 100, y: 100, width: 360, height: 320)
+
+        #expect(FloatingMeetingTranscriptInteraction.action(
+            at: NSPoint(x: 390, y: 400), in: frame
+        ) == .dismiss)
+        #expect(FloatingMeetingTranscriptInteraction.action(
+            at: NSPoint(x: 430, y: 400), in: frame
+        ) == .copy)
+        #expect(FloatingMeetingTranscriptInteraction.action(
+            at: NSPoint(x: 250, y: 250), in: frame
+        ) == .openMeeting)
+        #expect(FloatingMeetingTranscriptInteraction.action(
+            at: NSPoint(x: 90, y: 250), in: frame
+        ) == nil)
+    }
+
     @Test("floating panel can receive controls without becoming the main window")
     @MainActor
     func floatingPanelIsInteractive() {

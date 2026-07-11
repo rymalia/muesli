@@ -31,6 +31,26 @@ enum FloatingMeetingTranscriptPlacement {
     }
 }
 
+enum FloatingMeetingTranscriptInteraction: Equatable {
+    case dismiss
+    case copy
+    case openMeeting
+
+    static func action(at point: NSPoint, in panelFrame: NSRect) -> Self? {
+        guard panelFrame.contains(point) else { return nil }
+        let headerMinY = panelFrame.maxY - 42
+        guard point.y >= headerMinY else { return .openMeeting }
+
+        if point.x >= panelFrame.maxX - 48 {
+            return .copy
+        }
+        if point.x >= panelFrame.maxX - 88 {
+            return .dismiss
+        }
+        return .openMeeting
+    }
+}
+
 @MainActor
 @Observable
 final class FloatingMeetingTranscriptModel {
@@ -66,6 +86,8 @@ final class FloatingMeetingTranscriptPanelController {
     private let onOpenNotes: () -> Void
     private let onDismiss: () -> Void
     private var hostingView: FirstMouseHostingView<FloatingMeetingTranscriptPanelView>?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(
         onHoverChanged: @escaping (Bool) -> Void,
@@ -102,9 +124,11 @@ final class FloatingMeetingTranscriptPanelController {
         hostingView.frame = frame
         hostingView.isHidden = false
         model.isPresented = true
+        startMouseMonitoring()
     }
 
     func hide() {
+        stopMouseMonitoring()
         model.isPresented = false
         hostingView?.isHidden = true
         hostingView?.removeFromSuperview()
@@ -116,15 +140,78 @@ final class FloatingMeetingTranscriptPanelController {
     }
 
     func close() {
+        stopMouseMonitoring()
         model.isPresented = false
         hostingView?.removeFromSuperview()
         hostingView = nil
     }
 
     func containsMouseLocation() -> Bool {
-        guard isVisible, let hostingView, let window = hostingView.window else { return false }
-        let locationInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-        return hostingView.frame.contains(locationInWindow)
+        screenFrame?.contains(NSEvent.mouseLocation) == true
+    }
+
+    private var screenFrame: NSRect? {
+        guard isVisible, let hostingView, let window = hostingView.window else { return nil }
+        let frameInWindow = hostingView.convert(hostingView.bounds, to: nil)
+        return window.convertToScreen(frameInWindow)
+    }
+
+    private func startMouseMonitoring() {
+        guard localMouseMonitor == nil, globalMouseMonitor == nil else { return }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            let location = NSEvent.mouseLocation
+            let handled = MainActor.assumeIsolated {
+                self?.routeClick(at: location) ?? false
+            }
+            return handled ? nil : event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            let location = NSEvent.mouseLocation
+            Task { @MainActor [weak self] in
+                _ = self?.routeClick(at: location)
+            }
+        }
+    }
+
+    private func stopMouseMonitoring() {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
+    }
+
+    @discardableResult
+    private func routeClick(at screenPoint: NSPoint) -> Bool {
+        guard let screenFrame,
+              let interaction = FloatingMeetingTranscriptInteraction.action(
+                at: screenPoint,
+                in: screenFrame
+              ) else { return false }
+
+        switch interaction {
+        case .dismiss:
+            onDismiss()
+        case .copy:
+            copyTranscript()
+        case .openMeeting:
+            onOpenNotes()
+        }
+        return true
+    }
+
+    private func copyTranscript() {
+        let text = LiveTranscriptCopyContent.text(
+            transcript: model.presentation.transcript,
+            partialYou: model.presentation.partialYou,
+            partialOthers: model.presentation.partialOthers
+        )
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func makeHostingView() -> FirstMouseHostingView<FloatingMeetingTranscriptPanelView> {
