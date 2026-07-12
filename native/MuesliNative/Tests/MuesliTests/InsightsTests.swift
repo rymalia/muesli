@@ -299,6 +299,39 @@ struct InsightsTests {
         #expect(smallest == 13)
     }
 
+    @Test("word flow layout wraps after the available width and uses the tallest row item")
+    func wordFlowLayoutWrapsAndTracksRowHeight() {
+        let result = WordFlowLayout(spacing: 10).layout(
+            sizes: [
+                CGSize(width: 100, height: 20),
+                CGSize(width: 80, height: 30),
+                CGSize(width: 60, height: 10),
+            ],
+            width: 190
+        )
+
+        #expect(result.size == CGSize(width: 190, height: 50))
+        #expect(result.points == [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: 110, y: 0),
+            CGPoint(x: 0, y: 40),
+        ])
+    }
+
+    @Test("word flow layout keeps an item on a row when it exactly fits")
+    func wordFlowLayoutAcceptsExactFit() {
+        let result = WordFlowLayout(spacing: 10).layout(
+            sizes: [
+                CGSize(width: 70, height: 12),
+                CGSize(width: 70, height: 30),
+            ],
+            width: 150
+        )
+
+        #expect(result.size == CGSize(width: 150, height: 30))
+        #expect(result.points == [CGPoint(x: 0, y: 0), CGPoint(x: 80, y: 0)])
+    }
+
     private func encodedVarint(_ value: UInt64) -> Data {
         var remaining = value
         var result = Data()

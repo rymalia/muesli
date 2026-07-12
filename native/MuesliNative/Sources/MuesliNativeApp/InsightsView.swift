@@ -645,7 +645,7 @@ enum InsightsWordCloudSizing {
     }
 }
 
-private struct WordFlowLayout: Layout {
+struct WordFlowLayout: Layout {
     let spacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -659,14 +659,12 @@ private struct WordFlowLayout: Layout {
         }
     }
 
-    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, points: [CGPoint]) {
-        let width = proposal.width ?? 420
+    func layout(sizes: [CGSize], width: CGFloat) -> (size: CGSize, points: [CGPoint]) {
         var points: [CGPoint] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+        for size in sizes {
             if x > 0, x + size.width > width {
                 x = 0
                 y += rowHeight + spacing
@@ -677,6 +675,13 @@ private struct WordFlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
         }
         return (CGSize(width: width, height: y + rowHeight), points)
+    }
+
+    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, points: [CGPoint]) {
+        layout(
+            sizes: subviews.map { $0.sizeThatFits(.unspecified) },
+            width: proposal.width ?? 420
+        )
     }
 }
 
