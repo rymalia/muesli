@@ -145,6 +145,18 @@ struct SettingsView: View {
             && downloadedMeetingLiveCaptionBackends.contains(.nemotron35)
     }
 
+    private var meetingLiveTranscriptDescription: String {
+        let selected = appState.config.resolvedMeetingLiveCaptionBackend
+        guard appState.config.enableLiveStreamingPartials,
+              downloadedMeetingLiveCaptionBackends.contains(selected) else {
+            return "Live captions are off. Select a streaming model to preview speech as it is spoken."
+        }
+        if usesUnifiedMeetingTranscript {
+            return "Nemotron transcribes continuously and becomes the final raw transcript."
+        }
+        return "Parakeet provides a low-latency preview; the final model transcribes separately."
+    }
+
     private var selectedMeetingBackendLabel: String {
         if meetingBackendOptions.contains(appState.selectedMeetingTranscriptionBackend) {
             return appState.selectedMeetingTranscriptionBackend.label
@@ -660,9 +672,7 @@ struct SettingsView: View {
             Divider().background(MuesliTheme.surfaceBorder)
             settingsRow(
                 "Live transcript",
-                description: usesUnifiedMeetingTranscript
-                    ? "Nemotron transcribes continuously and becomes the final raw transcript."
-                    : "Parakeet provides a low-latency preview; the final model transcribes separately.",
+                description: meetingLiveTranscriptDescription,
                 controlWidth: meetingControlWidth
             ) {
                 if !downloadedMeetingLiveCaptionBackends.isEmpty {
