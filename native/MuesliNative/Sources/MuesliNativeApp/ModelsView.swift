@@ -34,7 +34,7 @@ struct ModelsView: View {
         let active = appState.selectedBackend
         _selectedParakeetModel = State(initialValue: BackendOption.parakeetFamily.contains(active) ? active.model : BackendOption.parakeetMultilingual.model)
         _selectedWhisperModel = State(initialValue: BackendOption.whisperFamily.contains(active) ? active.model : BackendOption.whisperSmall.model)
-        _showExperimental = State(initialValue: Self.activeFeatureTourTarget(in: appState) == .experimentalModels)
+        _showExperimental = State(initialValue: appState.activeFeatureTourTarget == .experimentalModels)
     }
 
     var body: some View {
@@ -66,7 +66,7 @@ struct ModelsView: View {
                 revealFeatureTourTargetIfNeeded(using: proxy)
             }
             .onChange(of: activeFeatureTourTarget) { _, target in
-                guard target == .experimentalModels else { return }
+                guard target == .streamingModels || target == .experimentalModels else { return }
                 revealFeatureTourTargetIfNeeded(using: proxy)
             }
         }
@@ -190,22 +190,25 @@ struct ModelsView: View {
     }
 
     private var activeFeatureTourTarget: FeatureTourTarget? {
-        Self.activeFeatureTourTarget(in: appState)
-    }
-
-    private static func activeFeatureTourTarget(in appState: AppState) -> FeatureTourTarget? {
-        guard let tour = appState.activeFeatureTour,
-              tour.steps.indices.contains(appState.featureTourStepIndex) else { return nil }
-        return tour.steps[appState.featureTourStepIndex].target
+        appState.activeFeatureTourTarget
     }
 
     private func revealFeatureTourTargetIfNeeded(using proxy: ScrollViewProxy) {
-        guard activeFeatureTourTarget == .experimentalModels else { return }
-        appState.selectedModelsCategory = .dictation
-        showExperimental = true
+        let target: FeatureTourTarget
+        switch activeFeatureTourTarget {
+        case .streamingModels:
+            target = .streamingModels
+            appState.selectedModelsCategory = .streaming
+        case .experimentalModels:
+            target = .experimentalModels
+            appState.selectedModelsCategory = .dictation
+            showExperimental = true
+        default:
+            return
+        }
         Task { @MainActor in
             await Task.yield()
-            proxy.scrollTo(FeatureTourTarget.experimentalModels.rawValue, anchor: .center)
+            proxy.scrollTo(target.rawValue, anchor: .center)
         }
     }
 
@@ -222,6 +225,8 @@ struct ModelsView: View {
             }
             .padding(.leading, 2)
             .padding(.top, MuesliTheme.spacing8)
+            .id(FeatureTourTarget.streamingModels.rawValue)
+            .featureTourTarget(.streamingModels)
 
             ForEach(BackendOption.streaming, id: \.model) { option in
                 if let liveCaptionBackend = MeetingLiveCaptionBackend(rawValue: option.backend) {
@@ -437,8 +442,7 @@ struct ModelsView: View {
             if showExperimental {
                 VStack(spacing: MuesliTheme.spacing12) {
                     ForEach(BackendOption.experimental, id: \.model) { option in
-                        if option == .gemma4E2BLiteRT,
-                           appState.selectedPostProcessorBackend == .gemma4LiteRT {
+                        if !appState.selectedPostProcessorBackend.isCompatible(with: option) {
                             modelCard(
                                 option: option,
                                 logo: logoForBackend(option),
@@ -1308,8 +1312,7 @@ struct ModelsView: View {
            appState.config.resolvedMeetingLiveCaptionBackend == .nemotron35 {
             controller.updateConfig { $0.enableLiveStreamingPartials = false }
         }
-        if option.backend == BackendOption.gemma4E2BLiteRT.backend,
-           appState.selectedPostProcessorBackend == .gemma4LiteRT {
+        if !appState.selectedPostProcessorBackend.isCompatible(with: option) {
             controller.selectPostProcessorBackend(.local)
         }
         if appState.selectedBackend == option {

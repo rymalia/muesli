@@ -127,21 +127,25 @@ struct FeatureTourTests {
     @Test("0.8 catalog points each walkthrough step at a unique product location")
     func catalogShape() {
         #expect(tour.version == "0.8.0")
-        #expect(tour.steps.count == 4)
+        #expect(tour.steps.count == 5)
         #expect(Set(tour.steps.map(\.id)).count == tour.steps.count)
         #expect(Set(tour.steps.map(\.target)).count == tour.steps.count)
 
         let authenticatedTour = FeatureTourCatalog.latest(includeCloudCleanup: true)
-        #expect(authenticatedTour.steps.count == 5)
+        #expect(authenticatedTour.steps.count == 6)
         #expect(authenticatedTour.steps.contains { $0.target == .cloudCleanupSetting })
 
-        let modelsStep = tour.steps.last
-        #expect(modelsStep?.id == "models")
-        #expect(modelsStep?.target == .experimentalModels)
-        #expect(modelsStep?.message.contains("Nemotron 3.5") == true)
-        #expect(modelsStep?.message.contains("Parakeet Realtime") == true)
-        #expect(modelsStep?.message.contains("Indic ASR") == true)
-        #expect(modelsStep?.message.contains("Gemma 4") == true)
+        let streamingStep = tour.steps.first { $0.target == .streamingModels }
+        #expect(streamingStep?.message.contains("Nemotron 3.5") == true)
+        #expect(streamingStep?.message.contains("Parakeet Realtime") == true)
+        #expect(streamingStep?.target.modelsCategory == .streaming)
+
+        let experimentalStep = tour.steps.last
+        #expect(experimentalStep?.id == "experimental-models")
+        #expect(experimentalStep?.target == .experimentalModels)
+        #expect(experimentalStep?.message.contains("Indic ASR") == true)
+        #expect(experimentalStep?.message.contains("Gemma 4") == true)
+        #expect(experimentalStep?.target.modelsCategory == .dictation)
     }
 
     @Test("store suppresses fresh installs and presents a legacy upgrade only once")

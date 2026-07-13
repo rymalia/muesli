@@ -86,7 +86,7 @@ struct FeatureTourCalloutLayout {
             return [.trailing, .leading, .below, .above]
         case .insightsEntry, .liveCaptionsSetting:
             return [.below, .above, .trailing, .leading]
-        case .cloudCleanupSetting, .experimentalModels:
+        case .cloudCleanupSetting, .streamingModels, .experimentalModels:
             return [.above, .below, .trailing, .leading]
         }
     }

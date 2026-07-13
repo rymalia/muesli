@@ -39,7 +39,19 @@ enum FeatureTourTarget: String, Hashable {
     case meetingsSidebar
     case liveCaptionsSetting
     case cloudCleanupSetting
+    case streamingModels
     case experimentalModels
+
+    var modelsCategory: ModelsCategory? {
+        switch self {
+        case .streamingModels:
+            return .streaming
+        case .experimentalModels:
+            return .dictation
+        case .insightsEntry, .meetingsSidebar, .liveCaptionsSetting, .cloudCleanupSetting:
+            return nil
+        }
+    }
 }
 
 struct FeatureTourStep: Identifiable, Equatable {
@@ -58,6 +70,14 @@ struct FeatureTour: Equatable {
     var displayVersion: String {
         guard let marketingVersion = MarketingVersion(version) else { return version }
         return marketingVersion.components.prefix(2).map(String.init).joined(separator: ".")
+    }
+}
+
+extension AppState {
+    var activeFeatureTourTarget: FeatureTourTarget? {
+        guard let activeFeatureTour,
+              activeFeatureTour.steps.indices.contains(featureTourStepIndex) else { return nil }
+        return activeFeatureTour.steps[featureTourStepIndex].target
     }
 }
 
@@ -105,16 +125,24 @@ enum FeatureTourCatalog {
             ))
         }
 
-        steps.append(
+        steps.append(contentsOf: [
             FeatureTourStep(
-                id: "models",
-                eyebrow: "NEW MODEL OPTIONS",
-                title: "New streaming and experimental models",
-                message: "Use the new tabs to find Nemotron 3.5 and Parakeet Realtime for streaming, plus Indic ASR and the Gemma 4 evaluation backend under Experimental.",
+                id: "streaming-models",
+                eyebrow: "LIVE MODEL OPTIONS",
+                title: "Choose your live transcription engine",
+                message: "The Streaming tab groups Nemotron 3.5 for live and final meeting transcripts with Parakeet Realtime for low-latency live preview.",
+                systemImage: "waveform.badge.mic",
+                target: .streamingModels
+            ),
+            FeatureTourStep(
+                id: "experimental-models",
+                eyebrow: "EXPERIMENTAL MODELS",
+                title: "Try new local dictation backends",
+                message: "Expand Experimental to evaluate SenseVoice, Qwen3 ASR, Indic ASR, and Gemma 4 without mixing them into the default model choices.",
                 systemImage: "cpu",
                 target: .experimentalModels
             )
-        )
+        ])
 
         return FeatureTour(version: "0.8.0", steps: steps)
     }

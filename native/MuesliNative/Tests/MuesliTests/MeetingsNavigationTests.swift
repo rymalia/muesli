@@ -1148,16 +1148,16 @@ struct MeetingsNavigationTests {
         config.postProcessorBackend = TranscriptCleanupBackendOption.gemma4LiteRT.backend
         config.enablePostProcessor = true
         configStore.save(config)
+        let persistedConfig = configStore.load()
+        #expect(persistedConfig.sttBackend == BackendOption.gemma4E2BLiteRT.backend)
+        #expect(persistedConfig.sttModel == BackendOption.gemma4E2BLiteRT.model)
 
         let controller = makeController(configStore: configStore)
 
-        #expect(controller.appState.selectedPostProcessorBackend == .local)
-        #expect(controller.appState.config.postProcessorBackend == TranscriptCleanupBackendOption.local.backend)
-        #expect(!controller.appState.config.enablePostProcessor)
-        #expect(
-            controller.appState.selectedBackend != .gemma4E2BLiteRT
-                || controller.appState.selectedPostProcessorBackend != .gemma4LiteRT
-        )
+        #expect(controller.selectedPostProcessorBackend == .local)
+        #expect(controller.config.postProcessorBackend == TranscriptCleanupBackendOption.local.backend)
+        #expect(!controller.config.enablePostProcessor)
+        #expect(controller.selectedBackend == .gemma4E2BLiteRT)
     }
 
     @Test("updateConfig persists normalized meeting transcription backend")

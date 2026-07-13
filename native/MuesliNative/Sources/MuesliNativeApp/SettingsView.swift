@@ -111,7 +111,7 @@ struct SettingsView: View {
     }
 
     private var disabledDictationBackendLabels: Set<String> {
-        guard appState.selectedPostProcessorBackend == .gemma4LiteRT,
+        guard !appState.selectedPostProcessorBackend.isCompatible(with: .gemma4E2BLiteRT),
               dictationBackendOptions.contains(.gemma4E2BLiteRT) else { return [] }
         return [BackendOption.gemma4E2BLiteRT.label]
     }
@@ -221,9 +221,7 @@ struct SettingsView: View {
     }
 
     private var activeFeatureTourTarget: FeatureTourTarget? {
-        guard let tour = appState.activeFeatureTour,
-              tour.steps.indices.contains(appState.featureTourStepIndex) else { return nil }
-        return tour.steps[appState.featureTourStepIndex].target
+        appState.activeFeatureTourTarget
     }
 
     var body: some View {

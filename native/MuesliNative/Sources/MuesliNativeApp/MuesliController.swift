@@ -840,15 +840,16 @@ final class MuesliController: NSObject {
     }
 
     @objc func showWhatsNew() {
-        beginFeatureTour(
-            FeatureTourCatalog.latest(includeCloudCleanup: chatGPTAuth.isAuthenticated),
-            source: "manual"
-        )
+        let tour = FeatureTourCatalog.latest(includeCloudCleanup: chatGPTAuth.isAuthenticated)
+        guard beginFeatureTour(tour, source: "manual") else { return }
+        featureTourStore.markOffered(tour)
     }
 
     @discardableResult
     private func offerFeatureTour(_ tour: FeatureTour) -> Bool {
         guard !tour.steps.isEmpty,
+              appState.pendingFeatureTourInvitation == nil,
+              appState.activeFeatureTour == nil,
               ensureBasicDictationPermissionsBeforeDashboard() else { return false }
 
         appState.pendingFeatureTourInvitation = tour
@@ -967,8 +968,10 @@ final class MuesliController: NSObject {
         case .cloudCleanupSetting:
             appState.selectedSettingsPane = .dictation
             appState.selectedTab = .settings
-        case .experimentalModels:
-            showModels(category: .dictation)
+        case .streamingModels, .experimentalModels:
+            if let category = step.target.modelsCategory {
+                showModels(category: category)
+            }
         }
     }
 
