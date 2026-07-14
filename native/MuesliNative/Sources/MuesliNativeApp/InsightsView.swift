@@ -452,7 +452,6 @@ private struct InsightsLoadingStatus: View {
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(InsightsPalette.secondaryText)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: messageIndex)
             }
             Spacer()
             Image(systemName: "lock.shield.fill")

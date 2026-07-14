@@ -90,13 +90,7 @@ struct AboutView: View {
 
                     Divider().background(MuesliTheme.surfaceBorder)
 
-                    HStack(alignment: .center, spacing: MuesliTheme.spacing16) {
-                        VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-                            Text("Automatic issue reporting prompts")
-                                .font(MuesliTheme.body())
-                                .foregroundStyle(MuesliTheme.textPrimary)
-                        }
-                        Spacer(minLength: MuesliTheme.spacing16)
+                    aboutRow("Automatic issue reporting prompts") {
                         Toggle("Auto reporting", isOn: Binding(
                             get: { appState.config.enableAutomaticDiagnosticIssuePrompts },
                             set: onSetAutomaticDiagnosticIssuePrompts
@@ -106,7 +100,6 @@ struct AboutView: View {
                         .help("Suggest an anonymized GitHub issue after an app error")
                         .accessibilityLabel("Automatic issue reporting prompts")
                     }
-                    .padding(.vertical, MuesliTheme.spacing8)
                 }
 
                 // MARK: - Data

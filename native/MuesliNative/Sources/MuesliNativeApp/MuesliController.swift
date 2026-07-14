@@ -5719,7 +5719,9 @@ final class MuesliController: NSObject {
 
     func setAutomaticDiagnosticIssuePrompts(_ enabled: Bool) {
         updateConfig { $0.enableAutomaticDiagnosticIssuePrompts = enabled }
-        if !enabled, appState.pendingDiagnosticIncident?.kind != .manualReport {
+        if !enabled,
+           let pending = appState.pendingDiagnosticIncident,
+           pending.kind != .manualReport {
             diagnosticIncidentReporter.dismissCurrentPrompt()
         }
     }
