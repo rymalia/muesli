@@ -34,6 +34,10 @@ struct MeetingPromptDecision: Equatable {
 final class MeetingPromptStateMachine {
     private(set) var visiblePromptID: String?
     private var userDismissedSuppressionIDs: Set<String> = []
+    // Media-session IDs are unique for each continuous call and intentionally
+    // remain consumed for this app process. Evicting them on a timer or count
+    // could re-prompt a long-running meeting; app restart is the cleanup bound,
+    // matching the existing user-dismissed suppression lifetime.
     private var recordingStartedSuppressionIDs: Set<String> = []
     private var autoDismissedSuppressionIDs: [String: Date] = [:]
     private var lastCandidateID: String?

@@ -232,16 +232,25 @@ struct DictationAudioRouteControllerTests {
             defaultOutputDeviceID: 10,
             outputRouteKind: .speakerLike,
             defaultInputDeviceID: 91,
-            builtInInputDeviceID: 82
+            builtInInputDeviceID: 82,
+            inputDevices: [
+                AudioInputDeviceInfo(uid: "external-mic", name: "External Mic", deviceID: 91, isBuiltIn: false),
+                AudioInputDeviceInfo(uid: "built-in-mic", name: "MacBook Microphone", deviceID: 82, isBuiltIn: true),
+            ]
         )
+        let routeQueue = DispatchQueue(label: "test.dictation-audio-route.meeting-nondefault-built-in")
         let controller = DictationAudioRouteController(
             inspector: inspector,
-            queue: DispatchQueue(label: "test.dictation-audio-route.meeting-nondefault-built-in"),
+            queue: routeQueue,
             observesDefaultOutputChanges: false
         )
+        routeQueue.sync {}
 
         #expect(controller.preferredInputDeviceIDForMeeting() == 82)
-        #expect(controller.meetingInputRouteSnapshot().preferredInputDeviceID == 82)
+        let snapshot = controller.meetingInputRouteSnapshot()
+        #expect(snapshot.preferredInputDeviceID == 82)
+        #expect(snapshot.preferredInputDeviceName == "MacBook Microphone")
+        #expect(snapshot.defaultInputDeviceName == "External Mic")
     }
 
     @Test("meeting route cache follows selected microphone unplug and reconnect")
