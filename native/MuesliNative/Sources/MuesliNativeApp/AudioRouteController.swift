@@ -394,7 +394,10 @@ final class DictationAudioRouteController: DictationAudioRouting {
             return inspector.inputDeviceID(matchingUID: uid)
         }
         let inputDeviceNamesByID = inputDevices.map { devices in
-            Dictionary(uniqueKeysWithValues: devices.map { ($0.deviceID, $0.name) })
+            Dictionary(
+                devices.map { ($0.deviceID, $0.name) },
+                uniquingKeysWith: { first, _ in first }
+            )
         } ?? cachedInputDeviceNames
         return RouteSnapshot(
             outputRouteKind: outputClassification.kind,

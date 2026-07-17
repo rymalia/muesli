@@ -253,6 +253,30 @@ struct DictationAudioRouteControllerTests {
         #expect(snapshot.defaultInputDeviceName == "External Mic")
     }
 
+    @Test("meeting route cache tolerates duplicate device IDs")
+    func meetingRouteCacheToleratesDuplicateDeviceIDs() {
+        let inspector = FakeCoreAudioDeviceInspector(
+            defaultOutputDeviceID: 10,
+            outputRouteKind: .speakerLike,
+            defaultInputDeviceID: 91,
+            builtInInputDeviceID: 82,
+            inputDevices: [
+                AudioInputDeviceInfo(uid: "external-mic", name: "External Mic", deviceID: 91, isBuiltIn: false),
+                AudioInputDeviceInfo(uid: "duplicate-mic", name: "Duplicate Mic", deviceID: 91, isBuiltIn: false),
+                AudioInputDeviceInfo(uid: "built-in-mic", name: "MacBook Microphone", deviceID: 82, isBuiltIn: true),
+            ]
+        )
+        let routeQueue = DispatchQueue(label: "test.dictation-audio-route.duplicate-device-ids")
+        let controller = DictationAudioRouteController(
+            inspector: inspector,
+            queue: routeQueue,
+            observesDefaultOutputChanges: false
+        )
+        routeQueue.sync {}
+
+        #expect(controller.meetingInputRouteSnapshot().defaultInputDeviceName == "External Mic")
+    }
+
     @Test("meeting route cache follows selected microphone unplug and reconnect")
     func meetingRouteCacheFollowsSelectedMicrophoneHotPlug() {
         let inspector = FakeCoreAudioDeviceInspector(

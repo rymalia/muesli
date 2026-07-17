@@ -35,7 +35,8 @@ Those diagnostics were intentionally excluded from PR #327 because some instrume
 
 ## Validation
 
-- 85 focused tests pass across route selection, recorder behavior, meeting candidate resolution, media-session tracking, prompt suppression, and selected-mic hot-plug behavior.
+- Historical local validation on commit `76b1fe8c`: 85 focused tests passed across route selection, recorder behavior, meeting candidate resolution, media-session tracking, prompt suppression, and selected-mic hot-plug behavior.
+- Full GitHub CI passed for that commit in [run 29598233464](https://github.com/Muesli-HQ/muesli/actions/runs/29598233464).
 - Muesli-first then Google Meet: both clients shared the built-in mic and participants heard the user.
 - Google Meet-first then Muesli auto-detection: Muesli used `systemDefaultStreaming`; microphone and system-audio capture remained healthy.
 - Discard while the external meeting remained active: teardown completed normally and the same session did not prompt again after cooldown.
