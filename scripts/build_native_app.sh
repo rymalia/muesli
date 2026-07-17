@@ -17,7 +17,7 @@ APP_SUPPORT_DIR_NAME="${MUESLI_SUPPORT_DIR_NAME:-$APP_DISPLAY_NAME}"
 BUNDLE_ID="${MUESLI_BUNDLE_ID:-com.muesli.app}"
 TELEMETRYDECK_APP_ID="${MUESLI_TELEMETRYDECK_APP_ID:-}"
 TELEMETRY_CHANNEL="${MUESLI_TELEMETRY_CHANNEL:-unconfigured}"
-DEFAULT_APP_VERSION="0.7.1"
+DEFAULT_APP_VERSION="0.8.0"
 APP_VERSION="${MUESLI_BUILD_VERSION:-$DEFAULT_APP_VERSION}"
 APP_BUNDLE_VERSION="${MUESLI_BUNDLE_VERSION:-$APP_VERSION}"
 APP_SHORT_VERSION="${MUESLI_SHORT_VERSION:-$APP_VERSION}"
@@ -171,6 +171,8 @@ cp "$ROOT/assets/AI4Bharat_logo.png" "$STAGED_APP_DIR/Contents/Resources/ai4bhar
 cp "$ROOT/assets/google-logo.svg" "$STAGED_APP_DIR/Contents/Resources/google-logo.svg"
 cp "$ROOT/assets/x-logo.png" "$STAGED_APP_DIR/Contents/Resources/x-logo.png"
 cp "$ROOT/assets/linkedin-logo.png" "$STAGED_APP_DIR/Contents/Resources/linkedin-logo.png"
+cp "$ROOT/assets/insights-share-background.png" "$STAGED_APP_DIR/Contents/Resources/insights-share-background.png"
+cp "$ROOT/assets/muesli_app_icon.png" "$STAGED_APP_DIR/Contents/Resources/muesli_app_icon.png"
 if [[ -d "$ROOT/assets/fonts" ]]; then
   ditto "$ROOT/assets/fonts" "$STAGED_APP_DIR/Contents/Resources/fonts"
 fi

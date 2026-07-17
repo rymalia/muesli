@@ -37,7 +37,9 @@ private struct LiveTranscriptSection: View {
             transcript: MeetingResumePolicy.combinedResumeTranscript(
                 prior: transcriptPrefix,
                 new: appState.liveMeetingTranscript
-            )
+            ),
+            partialYou: appState.liveMeetingPartialYou,
+            partialOthers: appState.liveMeetingPartialOthers
         )
     }
 }
@@ -119,6 +121,9 @@ struct MeetingDetailView: View {
                 }
                 .onChange(of: meeting.status) { _, _ in
                     syncLocalState(with: meeting)
+                }
+                .onChange(of: appState.meetingNotesFocusRequest) { _, _ in
+                    recordingMode = .notes
                 }
                 .onChange(of: meeting.manualNotes) { _, _ in
                     syncManualNotesState(with: meeting)
@@ -1769,7 +1774,7 @@ struct TranscriptChatMessage: Identifiable, Equatable {
         speaker?.localizedCaseInsensitiveCompare("You") == .orderedSame
     }
 
-    static func messages(from transcript: String) -> [TranscriptChatMessage] {
+    static func messages(from transcript: String, startingAt firstID: Int = 0) -> [TranscriptChatMessage] {
         let normalized = transcript.replacingOccurrences(of: "\r\n", with: "\n")
         let rawLines = normalized
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -1779,7 +1784,7 @@ struct TranscriptChatMessage: Identifiable, Equatable {
         for rawLine in rawLines {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
-            let parsed = parseLine(line, id: messages.count)
+            let parsed = parseLine(line, id: firstID + messages.count)
             messages.append(parsed)
         }
 
