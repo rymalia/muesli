@@ -358,10 +358,16 @@ final class DictationAudioRouteController: DictationAudioRouting {
     }
 
     private static func preferredMeetingInputDeviceID(for snapshot: RouteSnapshot) -> AudioObjectID? {
-        if let selectedInputDeviceID = snapshot.selectedInputDeviceID {
-            return selectedInputDeviceID
+        let desiredInputDeviceID = snapshot.selectedInputDeviceID ?? snapshot.builtInInputDeviceID
+
+        // A nil meeting preference means "use the system-default recorder".
+        // Avoid forcing the same physical device through the app-scoped
+        // AudioQueue path: opening that second explicit input context can
+        // disrupt a meeting client's already-running microphone graph.
+        guard desiredInputDeviceID != snapshot.defaultInputDeviceID else {
+            return nil
         }
-        return snapshot.builtInInputDeviceID
+        return desiredInputDeviceID
     }
 
     private func makeRouteSnapshot() -> RouteSnapshot {

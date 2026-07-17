@@ -39,6 +39,25 @@ struct DictationAudioRouteControllerTests {
         #expect(controller.meetingInputRouteSnapshot().outputRouteKind == "headphone-like")
     }
 
+    @Test("meeting uses system default recorder when built-in mic is already default")
+    func meetingUsesSystemDefaultRecorderForDefaultBuiltInMic() {
+        let inspector = FakeCoreAudioDeviceInspector(
+            defaultOutputDeviceID: 10,
+            outputRouteKind: .speakerLike,
+            defaultInputDeviceID: 82,
+            builtInInputDeviceID: 82
+        )
+        let controller = DictationAudioRouteController(
+            inspector: inspector,
+            queue: DispatchQueue(label: "test.dictation-audio-route.meeting-default-built-in"),
+            observesDefaultOutputChanges: false
+        )
+
+        #expect(controller.preferredInputDeviceIDForMeeting() == nil)
+        #expect(controller.meetingInputRouteSnapshot().preferredInputDeviceID == nil)
+        #expect(controller.meetingInputRouteSnapshot().defaultInputDeviceID == 82)
+    }
+
     @Test("meeting route snapshot never performs synchronous CoreAudio inspection")
     func meetingRouteSnapshotUsesCacheOnly() {
         let inspector = FakeCoreAudioDeviceInspector(
@@ -59,7 +78,7 @@ struct DictationAudioRouteControllerTests {
 
         let snapshot = controller.meetingInputRouteSnapshot()
 
-        #expect(snapshot.preferredInputDeviceID == 82)
+        #expect(snapshot.preferredInputDeviceID == nil)
         #expect(snapshot.defaultInputDeviceID == 82)
         #expect(inspector.inspectionCallCount == inspectionCountBeforeSnapshot)
     }
@@ -81,8 +100,8 @@ struct DictationAudioRouteControllerTests {
         #expect(controller.preferredInputDeviceIDForDictation() == nil)
         #expect(controller.cachedPreferredInputDeviceIDForDictation() == nil)
         #expect(controller.systemDefaultInputIsBuiltInForDictation())
-        #expect(controller.preferredInputDeviceIDForMeeting() == 82)
-        #expect(controller.meetingInputRouteSnapshot().preferredInputDeviceID == 82)
+        #expect(controller.preferredInputDeviceIDForMeeting() == nil)
+        #expect(controller.meetingInputRouteSnapshot().preferredInputDeviceID == nil)
     }
 
     @Test("speaker output with non-built-in default input is not warmup-safe")
@@ -177,6 +196,52 @@ struct DictationAudioRouteControllerTests {
         #expect(controller.preferredInputDeviceIDForDictation() == 91)
         #expect(controller.cachedPreferredInputDeviceIDForDictation() == 91)
         #expect(controller.preferredInputDeviceIDForMeeting() == 91)
+    }
+
+    @Test("user selected default microphone uses system default recorder")
+    func userSelectedDefaultMicrophoneUsesSystemDefaultRecorder() {
+        let inspector = FakeCoreAudioDeviceInspector(
+            defaultOutputDeviceID: 10,
+            outputRouteKind: .headphoneLike,
+            defaultInputDeviceID: 91,
+            builtInInputDeviceID: 82,
+            inputDevices: [
+                AudioInputDeviceInfo(uid: "external-mic", name: "External Mic", deviceID: 91, isBuiltIn: false),
+                AudioInputDeviceInfo(uid: "built-in-mic", name: "MacBook Microphone", deviceID: 82, isBuiltIn: true),
+            ]
+        )
+        let routeQueue = DispatchQueue(label: "test.dictation-audio-route.selected-default-input")
+        let controller = DictationAudioRouteController(
+            inspector: inspector,
+            queue: routeQueue,
+            observesDefaultOutputChanges: false
+        )
+        controller.selectedInputDeviceUID = "external-mic"
+        routeQueue.sync {}
+
+        #expect(controller.preferredInputDeviceIDForMeeting() == nil)
+        let snapshot = controller.meetingInputRouteSnapshot()
+        #expect(snapshot.preferredInputDeviceID == nil)
+        #expect(snapshot.selectedInputDeviceResolved)
+        #expect(snapshot.defaultInputDeviceID == 91)
+    }
+
+    @Test("meeting keeps explicit built-in routing when another microphone is default")
+    func meetingKeepsExplicitBuiltInRoutingForDifferentDefault() {
+        let inspector = FakeCoreAudioDeviceInspector(
+            defaultOutputDeviceID: 10,
+            outputRouteKind: .speakerLike,
+            defaultInputDeviceID: 91,
+            builtInInputDeviceID: 82
+        )
+        let controller = DictationAudioRouteController(
+            inspector: inspector,
+            queue: DispatchQueue(label: "test.dictation-audio-route.meeting-nondefault-built-in"),
+            observesDefaultOutputChanges: false
+        )
+
+        #expect(controller.preferredInputDeviceIDForMeeting() == 82)
+        #expect(controller.meetingInputRouteSnapshot().preferredInputDeviceID == 82)
     }
 
     @Test("unavailable selected microphone falls back to automatic route policy")
