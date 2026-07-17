@@ -248,7 +248,10 @@ struct DictationAudioRouteControllerTests {
         // verification from hiding whether its synchronous cache update works.
         routeQueue.sync {}
         routeQueue.suspend()
-        defer { routeQueue.resume() }
+        defer {
+            routeQueue.resume()
+            routeQueue.sync {}
+        }
         let inspectionCountBeforeSelection = inspector.inspectionCallCount
 
         controller.selectedInputDeviceUID = "external-mic"

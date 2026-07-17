@@ -38,9 +38,10 @@ Those diagnostics were intentionally excluded from PR #327 because some instrume
 
 ## Validation
 
-- Historical local validation on commit `76b1fe8c`: 85 focused tests passed across route selection, recorder behavior, meeting candidate resolution, media-session tracking, prompt suppression, and selected-mic hot-plug behavior.
-- Current local validation after the selected-mic cache hardening: 88 tests passed across the same five route, recorder, candidate-resolution, media-session, and prompt-state suites, including deterministic immediate-selection and unavailable-device cache regressions.
-- Full GitHub CI passed for that commit in [run 29598233464](https://github.com/Muesli-HQ/muesli/actions/runs/29598233464).
+- Historical local validation on commit `76b1fe8cbe533738baec37580fefebdf161e1988` from `codex/fix-322-meeting-microphone`: 85 focused tests passed across route selection, recorder behavior, meeting candidate resolution, media-session tracking, prompt suppression, and selected-mic hot-plug behavior.
+- Historical full GitHub CI for `76b1fe8cbe533738baec37580fefebdf161e1988` passed in [run 29598233464](https://github.com/Muesli-HQ/muesli/actions/runs/29598233464). That run predates later PR-tip changes and does not validate the latest implementation.
+- Local validation on commit `7e558ecf6174f4d5521a1964c82dedde17f40990` after the selected-mic cache hardening: 88 tests passed across the same five route, recorder, candidate-resolution, media-session, and prompt-state suites, including deterministic immediate-selection and unavailable-device cache regressions.
+- Full GitHub CI for `7e558ecf6174f4d5521a1964c82dedde17f40990` passed in [run 29608356208](https://github.com/Muesli-HQ/muesli/actions/runs/29608356208).
 - Muesli-first then Google Meet: both clients shared the built-in mic and participants heard the user.
 - Google Meet-first then Muesli auto-detection: Muesli used `systemDefaultStreaming`; microphone and system-audio capture remained healthy.
 - Discard while the external meeting remained active: teardown completed normally and the same session did not prompt again after cooldown.
